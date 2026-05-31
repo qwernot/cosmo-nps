@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tunnel Control</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="login-mode">
+    <section class="login-screen" id="login-screen">
+      <form class="login-panel" id="login-form">
+        <div class="brand login-brand">
+          <div class="brand-mark">TC</div>
+          <div>
+            <div class="brand-title">Tunnel Control</div>
+            <div class="brand-subtitle">统一穿透后台</div>
+          </div>
+        </div>
+        <label>
+          用户名
+          <input name="name" autocomplete="username" required placeholder="admin" />
+        </label>
+        <label>
+          密码
+          <input name="password" type="password" autocomplete="current-password" required placeholder="admin123" />
+        </label>
+        <button class="button" type="submit">登录</button>
+        <p class="login-note">首次启动默认管理员：admin / admin123</p>
+      </form>
+    </section>
+
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">TC</div>
+        <div>
+          <div class="brand-title">Tunnel Control</div>
+          <div class="brand-subtitle">Unified Control</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-view="dashboard">概览</button>
+        <button class="nav-item admin-only" data-view="users">用户</button>
+        <button class="nav-item" data-view="tunnels">隧道</button>
+        <button class="nav-item" data-view="configs">配置</button>
+      </nav>
+      <div class="runtime">
+        <span>服务地址</span>
+        <strong id="runtime-server">-</strong>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">概览</h1>
+          <p id="page-subtitle">统一用户、端口池和双引擎隧道。</p>
+        </div>
+        <div class="top-actions">
+          <span class="session-pill" id="session-user">未登录</span>
+          <button class="button secondary" id="refresh-button">刷新</button>
+          <button class="button secondary" id="password-button">修改密码</button>
+          <button class="button secondary admin-only" id="export-configs">导出配置</button>
+          <button class="button secondary" id="logout-button">退出</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="metrics">
+          <div class="metric">
+            <span>用户</span>
+            <strong id="metric-users">0</strong>
+          </div>
+          <div class="metric">
+            <span>隧道</span>
+            <strong id="metric-tunnels">0</strong>
+          </div>
+          <div class="metric">
+            <span>FRP</span>
+            <strong id="metric-frp">0</strong>
+          </div>
+          <div class="metric">
+            <span>NPS</span>
+            <strong id="metric-nps">0</strong>
+          </div>
+        </div>
+        <div class="split">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>最近用户</h2>
+              <button class="button small secondary admin-only" data-jump="users">管理</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>用户</th>
+                    <th>端口池</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-users"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>最近隧道</h2>
+              <button class="button small secondary" data-jump="tunnels">管理</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>引擎</th>
+                    <th>端口</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboard-tunnels"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-users">
+        <div class="workspace">
+          <form class="panel form-panel" id="user-form">
+            <div class="panel-head">
+              <h2>用户</h2>
+              <button class="button small secondary" type="button" id="clear-user-form">清空</button>
+            </div>
+            <label>
+              用户名
+              <input name="name" required placeholder="alice" />
+            </label>
+            <label>
+              Web 密码
+              <input name="password" type="password" placeholder="留空则不修改" />
+            </label>
+            <div class="form-grid">
+              <label>
+                角色
+                <select name="role">
+                  <option value="user">user</option>
+                  <option value="admin">admin</option>
+                </select>
+              </label>
+              <label>
+                最大端口数
+                <input name="maxPorts" type="number" min="0" value="3" />
+              </label>
+            </div>
+            <label>
+              端口池
+              <input name="portPool" placeholder="10000-10010,10020" />
+            </label>
+            <div class="form-grid">
+              <label>
+                FRP Token
+                <input name="frpToken" placeholder="自动生成" />
+              </label>
+              <label>
+                NPS VerifyKey
+                <input name="npsVerifyKey" placeholder="自动生成" />
+              </label>
+            </div>
+            <label class="checkline">
+              <input name="enabled" type="checkbox" checked />
+              启用
+            </label>
+            <button class="button" type="submit">保存用户</button>
+          </form>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>用户列表</h2>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>用户名</th>
+                    <th>端口池</th>
+                    <th>最大端口</th>
+                    <th>凭据</th>
+                    <th>状态</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="users-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-tunnels">
+        <div class="workspace">
+          <form class="panel form-panel" id="tunnel-form">
+            <div class="panel-head">
+              <h2>隧道</h2>
+              <button class="button small secondary" type="button" id="clear-tunnel-form">清空</button>
+            </div>
+            <input name="id" type="hidden" />
+            <div class="form-grid">
+              <label>
+                用户
+                <select name="userName" required></select>
+              </label>
+              <label>
+                引擎
+                <select name="engine">
+                  <option value="frp">frp</option>
+                  <option value="nps">nps</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-grid">
+              <label>
+                模式
+                <select name="mode">
+                  <option value="tcp">tcp</option>
+                  <option value="udp">udp</option>
+                  <option value="http">http</option>
+                  <option value="https">https</option>
+                  <option value="socks5">socks5</option>
+                </select>
+              </label>
+              <label>
+                远程端口
+                <input name="remotePort" type="number" min="0" placeholder="10000" />
+              </label>
+            </div>
+            <div class="form-grid">
+              <label>
+                本地 IP
+                <input name="localIp" value="127.0.0.1" />
+              </label>
+              <label>
+                本地端口
+                <input name="localPort" type="number" min="0" placeholder="8080" />
+              </label>
+            </div>
+            <label>
+              域名
+              <input name="domains" placeholder="a.example.com,b.example.com" />
+            </label>
+            <label>
+              备注
+              <input name="remark" placeholder="web" />
+            </label>
+            <label class="checkline">
+              <input name="enabled" type="checkbox" checked />
+              启用
+            </label>
+            <button class="button" type="submit">保存隧道</button>
+          </form>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>隧道列表</h2>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>用户</th>
+                    <th>引擎</th>
+                    <th>模式</th>
+                    <th>端口</th>
+                    <th>目标</th>
+                    <th>状态</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="tunnels-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-configs">
+        <div class="config-layout">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>客户端配置</h2>
+            </div>
+            <label>
+              用户
+              <select id="config-user"></select>
+            </label>
+            <div class="button-row">
+              <button class="button secondary" id="load-frpc">FRP 配置</button>
+              <button class="button secondary" id="load-npc">NPS 命令</button>
+              <button class="button" id="copy-config">复制</button>
+            </div>
+          </section>
+          <section class="panel output-panel">
+            <div class="panel-head">
+              <h2 id="config-title">输出</h2>
+            </div>
+            <pre id="config-output"></pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-engines">
+        <div class="split">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>运行状态</h2>
+              <button class="button small secondary" id="refresh-engines">刷新</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>引擎</th>
+                    <th>配置</th>
+                    <th>进程</th>
+                    <th>端口</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="engines-table"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel output-panel">
+            <div class="panel-head">
+              <h2>启动参数</h2>
+            </div>
+            <pre id="engine-help"></pre>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

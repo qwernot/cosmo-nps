@@ -1,0 +1,16 @@
+.git
+.data
+dist
+deploy/docker/data
+deploy/docker/.env
+tunnel-control*
+*.exe
+*.exe~
+*.tar
+*.tar.gz
+*.zip
+*.log
+*.tmp
+
+upstream/frp/.git
+upstream/NPS/.git

@@ -1,0 +1,13 @@
+bindPort = 17000
+
+[webServer]
+addr = "0.0.0.0"
+port = 0
+user = "admin"
+password = "change-this-frps-dashboard-password"
+
+[userStore]
+enable = true
+path = "/data/frps-users.json"
+adminUser = "admin"
+adminPassword = "change-this-admin-password"
