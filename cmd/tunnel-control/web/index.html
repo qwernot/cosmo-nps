@@ -113,7 +113,7 @@
                   <tr>
                     <th>ID</th>
                     <th>引擎</th>
-                    <th>端口</th>
+                    <th>端口/域名</th>
                   </tr>
                 </thead>
                 <tbody id="dashboard-tunnels"></tbody>
@@ -155,6 +155,10 @@
               端口池
               <input name="portPool" placeholder="10000-10010,10020" />
             </label>
+            <label>
+              域名池
+              <input name="domainPool" placeholder="*.example.com,app.example.com" />
+            </label>
             <div class="form-grid">
               <label>
                 FRP Token
@@ -181,7 +185,8 @@
                   <tr>
                     <th>用户名</th>
                     <th>端口池</th>
-                    <th>最大端口</th>
+                    <th>域名池</th>
+                    <th>最大隧道</th>
                     <th>凭据</th>
                     <th>状态</th>
                     <th></th>
@@ -267,7 +272,7 @@
                     <th>用户</th>
                     <th>引擎</th>
                     <th>模式</th>
-                    <th>端口</th>
+                    <th>端口/域名</th>
                     <th>目标</th>
                     <th>状态</th>
                     <th></th>

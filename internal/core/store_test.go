@@ -45,6 +45,39 @@ func TestCreateTunnelValidatesPortPoolAndReuse(t *testing.T) {
 	}
 }
 
+func TestCreateHTTPSTunnelValidatesDomainPool(t *testing.T) {
+	store, err := NewStore(filepath.Join(t.TempDir(), "db.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	domains, err := ParseDomainPools("*.example.com,app.test.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpsertUser(User{Name: "alice", Role: RoleUser, Enabled: true, DomainPools: domains, MaxPorts: 2}); err != nil {
+		t.Fatal(err)
+	}
+	tunnel, err := store.CreateTunnel(Tunnel{
+		UserName: "alice", Engine: EngineNPS, Mode: "https", RemotePort: 10000, LocalPort: 8080, Domains: []string{"web.example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tunnel.RemotePort != 0 || strings.Join(tunnel.Domains, ",") != "web.example.com" {
+		t.Fatalf("unexpected normalized tunnel: %#v", tunnel)
+	}
+	if _, err := store.CreateTunnel(Tunnel{
+		UserName: "alice", Engine: EngineFRP, Mode: "https", LocalPort: 8081, Domains: []string{"bad.example.net"},
+	}); err == nil {
+		t.Fatal("expected domain pool validation error")
+	}
+	if _, err := store.CreateTunnel(Tunnel{
+		UserName: "alice", Engine: EngineFRP, Mode: "https", LocalPort: 8082, Domains: []string{"web.example.com"},
+	}); err == nil {
+		t.Fatal("expected duplicate domain validation error")
+	}
+}
+
 func TestRenderConfigs(t *testing.T) {
 	user := User{Name: "alice", FRPToken: "frp-token", NPSVerifyKey: "nps-key"}
 	tunnels := []Tunnel{{
@@ -66,5 +99,25 @@ func TestRenderConfigs(t *testing.T) {
 	}
 	if cmd != "./npc -server=example.com:8024 -vkey=nps-key" {
 		t.Fatalf("unexpected npc command: %s", cmd)
+	}
+}
+
+func TestRenderFRPHTTPConfig(t *testing.T) {
+	user := User{Name: "alice", FRPToken: "frp-token"}
+	tunnels := []Tunnel{{
+		ID: "web", UserName: "alice", Engine: EngineFRP, Mode: "http", Domains: []string{"web.example.com"},
+		LocalIP: "127.0.0.1", LocalPort: 8080, Enabled: true,
+	}}
+	frpc, err := RenderFRPC(user, tunnels, RuntimeConfig{ServerAddr: "example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`type = "http"`, `customDomains = ["web.example.com"]`, `localPort = 8080`} {
+		if !strings.Contains(frpc, want) {
+			t.Fatalf("frpc config missing %q:\n%s", want, frpc)
+		}
+	}
+	if strings.Contains(frpc, "remotePort") {
+		t.Fatalf("http proxy should not render remotePort:\n%s", frpc)
 	}
 }

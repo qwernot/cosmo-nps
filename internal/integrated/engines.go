@@ -28,16 +28,20 @@ var (
 )
 
 type FRPOptions struct {
-	BindPort int
-	WebPort  int
-	UserFile string
-	Admin    string
-	Password string
+	BindPort  int
+	HTTPPort  int
+	HTTPSPort int
+	WebPort   int
+	UserFile  string
+	Admin     string
+	Password  string
 }
 
 func RunFRP(ctx context.Context, opt FRPOptions) error {
 	cfg := &frpconfig.ServerConfig{
-		BindPort: opt.BindPort,
+		BindPort:       opt.BindPort,
+		VhostHTTPPort:  opt.HTTPPort,
+		VhostHTTPSPort: opt.HTTPSPort,
 		UserStore: frpconfig.UserStoreConfig{
 			Enable:        true,
 			Path:          opt.UserFile,
@@ -183,12 +187,41 @@ func SyncNPSState(users []core.User, tunnels []core.Tunnel) error {
 	}
 
 	desiredTasks := map[string]bool{}
+	desiredHosts := map[string]bool{}
 	for _, tunnel := range tunnels {
 		if tunnel.Engine != core.EngineNPS || !tunnel.Enabled {
 			continue
 		}
 		client := clients[tunnel.UserName]
 		if client == nil {
+			continue
+		}
+		if tunnel.Mode == "http" || tunnel.Mode == "https" {
+			for _, domain := range tunnel.Domains {
+				remark := managedNPSHostRemark(tunnel.ID, domain)
+				desiredHosts[remark] = true
+				host := findNPSHost(remark)
+				if host == nil {
+					host = &npsfile.Host{Id: int(db.JsonDb.GetHostId())}
+				}
+				host.Host = domain
+				host.Target = &npsfile.Target{TargetStr: fmt.Sprintf("%s:%d", tunnel.LocalIP, tunnel.LocalPort)}
+				host.HeaderChange = ""
+				host.HostChange = ""
+				host.Remark = remark
+				host.Location = "/"
+				host.Flow = &npsfile.Flow{}
+				host.Scheme = tunnel.Mode
+				host.Client = client
+				host.IsClose = false
+				host.AutoHttps = false
+				if existing := findNPSHostByDomain(domain, tunnel.Mode, remark); existing != nil {
+					return fmt.Errorf("nps host %s/%s already exists in %s", tunnel.Mode, domain, existing.Remark)
+				}
+				if err := upsertNPSHost(db, host); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		remark := managedNPSRemark(tunnel.ID)
@@ -231,6 +264,15 @@ func SyncNPSState(users []core.User, tunnels []core.Tunnel) error {
 			}
 		}
 		_ = db.DelTask(task.Id)
+		return true
+	})
+
+	db.JsonDb.Hosts.Range(func(key, value any) bool {
+		host, ok := value.(*npsfile.Host)
+		if !ok || !strings.HasPrefix(host.Remark, "tc:") || desiredHosts[host.Remark] {
+			return true
+		}
+		_ = db.DelHost(host.Id)
 		return true
 	})
 
@@ -288,6 +330,54 @@ func findNPSTask(remark string) *npsfile.Tunnel {
 	return task
 }
 
+func findNPSHost(remark string) *npsfile.Host {
+	var host *npsfile.Host
+	npsfile.GetDb().JsonDb.Hosts.Range(func(_, value any) bool {
+		h, ok := value.(*npsfile.Host)
+		if !ok {
+			return true
+		}
+		if h.Remark == remark {
+			host = h
+			return false
+		}
+		return true
+	})
+	return host
+}
+
+func findNPSHostByDomain(domain, scheme, exceptRemark string) *npsfile.Host {
+	var host *npsfile.Host
+	npsfile.GetDb().JsonDb.Hosts.Range(func(_, value any) bool {
+		h, ok := value.(*npsfile.Host)
+		if !ok || h.Remark == exceptRemark {
+			return true
+		}
+		if h.Host == domain && h.Location == "/" && (h.Scheme == scheme || h.Scheme == "all") {
+			host = h
+			return false
+		}
+		return true
+	})
+	return host
+}
+
+func upsertNPSHost(db *npsfile.DbUtils, host *npsfile.Host) error {
+	if host.Location == "" {
+		host.Location = "/"
+	}
+	if host.Flow == nil {
+		host.Flow = &npsfile.Flow{}
+	}
+	db.JsonDb.Hosts.Store(host.Id, host)
+	db.JsonDb.StoreHostToJsonFile()
+	return nil
+}
+
 func managedNPSRemark(id string) string {
 	return "tc:" + id
+}
+
+func managedNPSHostRemark(id, domain string) string {
+	return "tc:" + id + ":" + domain
 }

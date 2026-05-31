@@ -54,6 +54,19 @@ function formatPools(pools) {
   return pools.map((p) => (p.start === p.end ? `${p.start}` : `${p.start}-${p.end}`)).join(",");
 }
 
+function formatDomains(domains) {
+  if (!domains || domains.length === 0) return "-";
+  return domains.join(",");
+}
+
+function isDomainMode(mode) {
+  return mode === "http" || mode === "https";
+}
+
+function tunnelEntry(t) {
+  return isDomainMode(t.mode) ? formatDomains(t.domains) : (t.remotePort || "-");
+}
+
 function toast(message) {
   const el = $("#toast");
   el.textContent = message;
@@ -115,7 +128,7 @@ function renderDashboardTables() {
   $("#dashboard-users").innerHTML = state.users.slice(0, 6).map((u) => `
     <tr>
       <td>${escapeHtml(u.name)}</td>
-      <td>${escapeHtml(formatPools(u.portPools))}</td>
+      <td title="${escapeHtml(formatDomains(u.domainPools))}">${escapeHtml(formatPools(u.portPools))}</td>
       <td>${statusBadge(u.enabled)}</td>
     </tr>
   `).join("") || emptyRow(3);
@@ -124,7 +137,7 @@ function renderDashboardTables() {
     <tr>
       <td title="${escapeHtml(t.id)}">${escapeHtml(t.id)}</td>
       <td>${engineBadge(t.engine)}</td>
-      <td>${t.remotePort || "-"}</td>
+      <td>${escapeHtml(tunnelEntry(t))}</td>
     </tr>
   `).join("") || emptyRow(3);
 }
@@ -134,6 +147,7 @@ function renderUsers() {
     <tr>
       <td>${escapeHtml(u.name)}</td>
       <td title="${escapeHtml(formatPools(u.portPools))}">${escapeHtml(formatPools(u.portPools))}</td>
+      <td title="${escapeHtml(formatDomains(u.domainPools))}">${escapeHtml(formatDomains(u.domainPools))}</td>
       <td>${u.maxPorts || 0}</td>
       <td>
         <span class="badge ${u.hasFrpToken ? "ok" : "warn"}">FRP</span>
@@ -147,7 +161,7 @@ function renderUsers() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(6);
+  `).join("") || emptyRow(7);
 }
 
 function renderTunnels() {
@@ -157,7 +171,7 @@ function renderTunnels() {
       <td>${escapeHtml(t.userName)}</td>
       <td>${engineBadge(t.engine)}</td>
       <td>${escapeHtml(t.mode)}</td>
-      <td>${t.remotePort || "-"}</td>
+      <td>${escapeHtml(tunnelEntry(t))}</td>
       <td>${escapeHtml(`${t.localIp || "-"}:${t.localPort || "-"}`)}</td>
       <td>${statusBadge(t.enabled)}</td>
       <td>
@@ -253,6 +267,7 @@ function clearTunnelForm() {
   $('#tunnel-form input[name="localIp"]').value = "127.0.0.1";
   $('#tunnel-form input[name="enabled"]').checked = true;
   if (state.users[0]) $('select[name="userName"]').value = state.users[0].name;
+  updateTunnelModeFields();
 }
 
 function editUser(name) {
@@ -265,6 +280,7 @@ function editUser(name) {
   field(form, "role").value = user.role;
   field(form, "maxPorts").value = user.maxPorts || 0;
   field(form, "portPool").value = formatPools(user.portPools);
+  field(form, "domainPool").value = formatDomains(user.domainPools);
   field(form, "frpToken").value = "";
   field(form, "npsVerifyKey").value = "";
   field(form, "enabled").checked = user.enabled;
@@ -285,7 +301,19 @@ function editTunnel(id) {
   field(form, "domains").value = (tunnel.domains || []).join(",");
   field(form, "remark").value = tunnel.remark || "";
   field(form, "enabled").checked = tunnel.enabled;
+  updateTunnelModeFields();
   switchView("tunnels");
+}
+
+function updateTunnelModeFields() {
+  const form = $("#tunnel-form");
+  const mode = field(form, "mode").value;
+  field(form, "remotePort").disabled = isDomainMode(mode);
+  field(form, "remotePort").required = !isDomainMode(mode);
+  field(form, "domains").required = isDomainMode(mode);
+  if (isDomainMode(mode)) {
+    field(form, "remotePort").value = "";
+  }
 }
 
 async function login(event) {
@@ -331,6 +359,7 @@ async function saveUser(event) {
     role: data.role,
     enabled: field(form, "enabled").checked,
     portPool: data.portPool.trim(),
+    domainPool: data.domainPool.trim(),
     maxPorts: Number(data.maxPorts || 0),
     frpToken: data.frpToken.trim(),
     npsVerifyKey: data.npsVerifyKey.trim(),
@@ -350,7 +379,7 @@ async function saveTunnel(event) {
     userName: isAdmin() ? data.userName : state.me.name,
     engine: data.engine,
     mode: data.mode,
-    remotePort: Number(data.remotePort || 0),
+    remotePort: isDomainMode(data.mode) ? 0 : Number(data.remotePort || 0),
     localIp: data.localIp.trim() || "127.0.0.1",
     localPort: Number(data.localPort || 0),
     domains: data.domains.split(",").map((v) => v.trim()).filter(Boolean),
@@ -445,6 +474,7 @@ const refreshEngines = $("#refresh-engines");
 if (refreshEngines) refreshEngines.addEventListener("click", () => refresh().then(() => toast("已刷新")).catch((err) => toast(err.message)));
 $("#user-form").addEventListener("submit", (event) => saveUser(event).catch((err) => toast(err.message)));
 $("#tunnel-form").addEventListener("submit", (event) => saveTunnel(event).catch((err) => toast(err.message)));
+$('select[name="mode"]').addEventListener("change", updateTunnelModeFields);
 $("#clear-user-form").addEventListener("click", clearUserForm);
 $("#clear-tunnel-form").addEventListener("click", clearTunnelForm);
 $("#load-frpc").addEventListener("click", () => loadConfig("frp").catch((err) => toast(err.message)));
@@ -453,3 +483,4 @@ $("#copy-config").addEventListener("click", () => copyConfig().catch((err) => to
 $("#export-configs").addEventListener("click", () => exportConfigs().catch((err) => toast(err.message)));
 
 boot();
+updateTunnelModeFields();

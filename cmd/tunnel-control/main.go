@@ -34,7 +34,11 @@ func main() {
 		dbPath           = flag.String("db", ".data/tunnel-control.json", "JSON database path")
 		publicAddr       = flag.String("public-addr", "127.0.0.1", "public server address used in generated client configs")
 		frpServerPort    = flag.Int("frp-port", 7000, "frps bind port used in generated frpc configs")
+		frpHTTPPort      = flag.Int("frp-http-port", 0, "embedded FRP HTTP vhost port")
+		frpHTTPSPort     = flag.Int("frp-https-port", 0, "embedded FRP HTTPS vhost port")
 		npsServerPort    = flag.Int("nps-port", 8024, "nps bridge port used in generated npc commands")
+		npsHTTPPort      = flag.Int("nps-http-port", 0, "NPS HTTP proxy port shown in runtime info")
+		npsHTTPSPort     = flag.Int("nps-https-port", 0, "NPS HTTPS proxy port shown in runtime info")
 		frpsBin          = flag.String("frps-bin", "", "optional frps binary path for engine start/stop")
 		frpsConfig       = flag.String("frps-config", "", "optional frps config path used with -c")
 		npsBin           = flag.String("nps-bin", "", "optional nps binary path for engine start/stop")
@@ -69,9 +73,13 @@ func main() {
 		configOut:    *configOutDir,
 		embedded:     *embeddedEngines,
 		runtime: core.RuntimeConfig{
-			ServerAddr:    *publicAddr,
-			FRPServerPort: *frpServerPort,
-			NPSServerPort: *npsServerPort,
+			ServerAddr:       *publicAddr,
+			FRPServerPort:    *frpServerPort,
+			FRPHTTPPort:      *frpHTTPPort,
+			FRPHTTPSPort:     *frpHTTPSPort,
+			NPSServerPort:    *npsServerPort,
+			NPSHTTPProxyPort: *npsHTTPPort,
+			NPSHTTPSPort:     *npsHTTPSPort,
 		},
 	}
 	if _, err := api.syncEngineUsers(); err != nil {
@@ -80,11 +88,13 @@ func main() {
 	if *embeddedEngines {
 		go func() {
 			if err := integrated.RunFRP(context.Background(), integrated.FRPOptions{
-				BindPort: *frpServerPort,
-				WebPort:  *frpDashboardPort,
-				UserFile: *frpUsersPath,
-				Admin:    *adminUser,
-				Password: *adminPassword,
+				BindPort:  *frpServerPort,
+				HTTPPort:  *frpHTTPPort,
+				HTTPSPort: *frpHTTPSPort,
+				WebPort:   *frpDashboardPort,
+				UserFile:  *frpUsersPath,
+				Admin:     *adminUser,
+				Password:  *adminPassword,
 			}); err != nil {
 				log.Printf("embedded frp stopped: %v", err)
 			}
@@ -325,6 +335,8 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		Enabled      *bool            `json:"enabled"`
 		PortPool     string           `json:"portPool"`
 		PortPools    []core.PortRange `json:"portPools"`
+		DomainPool   string           `json:"domainPool"`
+		DomainPools  []string         `json:"domainPools"`
 		MaxPorts     int              `json:"maxPorts"`
 		FRPToken     string           `json:"frpToken"`
 		NPSVerifyKey string           `json:"npsVerifyKey"`
@@ -342,6 +354,15 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		}
 		pools = parsed
 	}
+	domainPools := req.DomainPools
+	if req.DomainPool != "" {
+		parsed, err := core.ParseDomainPools(req.DomainPool)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		domainPools = parsed
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -352,6 +373,7 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		Role:         req.Role,
 		Enabled:      enabled,
 		PortPools:    pools,
+		DomainPools:  domainPools,
 		MaxPorts:     req.MaxPorts,
 		FRPToken:     req.FRPToken,
 		NPSVerifyKey: req.NPSVerifyKey,

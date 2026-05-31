@@ -90,6 +90,7 @@ func (s *Store) GetUser(name string) (*User, bool) {
 	}
 	cp := *u
 	cp.PortPools = append([]PortRange(nil), u.PortPools...)
+	cp.DomainPools = append([]string(nil), u.DomainPools...)
 	return &cp, true
 }
 
@@ -108,6 +109,7 @@ func (s *Store) VerifyLogin(name, password string) (*User, bool) {
 	}
 	cp := *u
 	cp.PortPools = append([]PortRange(nil), u.PortPools...)
+	cp.DomainPools = append([]string(nil), u.DomainPools...)
 	return &cp, true
 }
 
@@ -137,6 +139,7 @@ func (s *Store) Users() []User {
 	for _, u := range s.db.Users {
 		cp := *u
 		cp.PortPools = append([]PortRange(nil), u.PortPools...)
+		cp.DomainPools = append([]string(nil), u.DomainPools...)
 		users = append(users, cp)
 	}
 	slices.SortFunc(users, func(a, b User) int {
@@ -155,6 +158,11 @@ func (s *Store) UpsertUser(in User) (PublicUser, error) {
 	if in.Role != RoleAdmin && in.Role != RoleUser {
 		return PublicUser{}, fmt.Errorf("role must be %q or %q", RoleAdmin, RoleUser)
 	}
+	domains, err := NormalizeDomains(in.DomainPools)
+	if err != nil {
+		return PublicUser{}, err
+	}
+	in.DomainPools = domains
 	now := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,6 +178,7 @@ func (s *Store) UpsertUser(in User) (PublicUser, error) {
 	u.Role = in.Role
 	u.Enabled = in.Enabled
 	u.PortPools = append([]PortRange(nil), in.PortPools...)
+	u.DomainPools = append([]string(nil), in.DomainPools...)
 	u.MaxPorts = in.MaxPorts
 	if in.Password != "" {
 		u.Password = ""
@@ -239,8 +248,20 @@ func (s *Store) ListTunnels(userName string) []Tunnel {
 }
 
 func (s *Store) CreateTunnel(in Tunnel) (Tunnel, error) {
+	in.Mode = strings.ToLower(strings.TrimSpace(in.Mode))
+	in.Engine = strings.ToLower(strings.TrimSpace(in.Engine))
 	if in.LocalIP == "" {
 		in.LocalIP = "127.0.0.1"
+	}
+	domains, err := NormalizeDomains(in.Domains)
+	if err != nil {
+		return Tunnel{}, err
+	}
+	in.Domains = domains
+	if isDomainMode(in.Mode) {
+		in.RemotePort = 0
+	} else {
+		in.Domains = nil
 	}
 	now := time.Now().UTC()
 	s.mu.Lock()
@@ -267,8 +288,20 @@ func (s *Store) CreateTunnel(in Tunnel) (Tunnel, error) {
 }
 
 func (s *Store) UpdateTunnel(id string, in Tunnel) (Tunnel, error) {
+	in.Mode = strings.ToLower(strings.TrimSpace(in.Mode))
+	in.Engine = strings.ToLower(strings.TrimSpace(in.Engine))
 	if in.LocalIP == "" {
 		in.LocalIP = "127.0.0.1"
+	}
+	domains, err := NormalizeDomains(in.Domains)
+	if err != nil {
+		return Tunnel{}, err
+	}
+	in.Domains = domains
+	if isDomainMode(in.Mode) {
+		in.RemotePort = 0
+	} else {
+		in.Domains = nil
 	}
 	if id == "" {
 		return Tunnel{}, fmt.Errorf("tunnel id is required")
@@ -320,30 +353,59 @@ func (s *Store) validateTunnelLocked(in Tunnel, existingID string) error {
 	if in.Mode == "" {
 		return fmt.Errorf("mode is required")
 	}
+	if !isPortMode(in.Mode) && !isDomainMode(in.Mode) {
+		return fmt.Errorf("mode must be tcp, udp, socks5, http or https")
+	}
+	if in.LocalPort <= 0 || in.LocalPort > 65535 {
+		return fmt.Errorf("local port is required")
+	}
 	u, ok := s.db.Users[in.UserName]
 	if !ok || !u.Enabled {
 		return fmt.Errorf("user %q not found or disabled", in.UserName)
 	}
-	if in.RemotePort > 0 && !portInRanges(in.RemotePort, u.PortPools) {
-		return fmt.Errorf("remote port %d is outside user port pool %s", in.RemotePort, FormatPortRanges(u.PortPools))
-	}
-	if in.RemotePort > 0 {
+	if isPortMode(in.Mode) {
+		if in.RemotePort <= 0 {
+			return fmt.Errorf("remote port is required for %s tunnel", in.Mode)
+		}
+		if !portInRanges(in.RemotePort, u.PortPools) {
+			return fmt.Errorf("remote port %d is outside user port pool %s", in.RemotePort, FormatPortRanges(u.PortPools))
+		}
 		for _, existing := range s.db.Tunnels {
 			if existing.ID != existingID && existing.RemotePort == in.RemotePort {
 				return fmt.Errorf("remote port %d is already used by tunnel %s", in.RemotePort, existing.ID)
 			}
 		}
+		in.Domains = nil
+	} else {
+		if len(in.Domains) == 0 {
+			return fmt.Errorf("domain is required for %s tunnel", in.Mode)
+		}
+		for _, domain := range in.Domains {
+			if !domainInPools(domain, u.DomainPools) {
+				return fmt.Errorf("domain %s is outside user domain pool %s", domain, FormatDomainPools(u.DomainPools))
+			}
+			for _, existing := range s.db.Tunnels {
+				if existing.ID == existingID || !isDomainMode(existing.Mode) {
+					continue
+				}
+				for _, existingDomain := range existing.Domains {
+					if existing.Mode == in.Mode && existingDomain == domain {
+						return fmt.Errorf("domain %s is already used by tunnel %s", domain, existing.ID)
+					}
+				}
+			}
+		}
 	}
-	if u.MaxPorts > 0 && in.RemotePort > 0 && s.countUserPortsLocked(in.UserName, existingID) >= u.MaxPorts {
-		return fmt.Errorf("user %q reached max port count %d", in.UserName, u.MaxPorts)
+	if u.MaxPorts > 0 && s.countUserTunnelsLocked(in.UserName, existingID) >= u.MaxPorts {
+		return fmt.Errorf("user %q reached max tunnel count %d", in.UserName, u.MaxPorts)
 	}
 	return nil
 }
 
-func (s *Store) countUserPortsLocked(userName, exceptID string) int {
+func (s *Store) countUserTunnelsLocked(userName, exceptID string) int {
 	count := 0
 	for _, t := range s.db.Tunnels {
-		if t.ID != exceptID && t.UserName == userName && t.RemotePort > 0 {
+		if t.ID != exceptID && t.UserName == userName {
 			count++
 		}
 	}
@@ -408,6 +470,34 @@ func portInRanges(port int, ranges []PortRange) bool {
 		}
 	}
 	return false
+}
+
+func domainInPools(domain string, pools []string) bool {
+	for _, pool := range pools {
+		if pool == "*" || pool == domain {
+			return true
+		}
+		if strings.HasPrefix(pool, "*.") {
+			suffix := strings.TrimPrefix(pool, "*.")
+			if domain != suffix && strings.HasSuffix(domain, "."+suffix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isPortMode(mode string) bool {
+	switch mode {
+	case "tcp", "udp", "socks5":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDomainMode(mode string) bool {
+	return mode == "http" || mode == "https"
 }
 
 func nextTunnelID(userName, engine, mode string, port int) string {

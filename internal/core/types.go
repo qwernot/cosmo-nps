@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -76,6 +77,79 @@ func FormatPortRanges(ranges []PortRange) string {
 	return strings.Join(parts, ",")
 }
 
+func ParseDomainPools(input string) ([]string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil, nil
+	}
+	parts := strings.Split(input, ",")
+	domains := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		domain, err := NormalizeDomain(part)
+		if err != nil {
+			return nil, err
+		}
+		if domain == "" || seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		domains = append(domains, domain)
+	}
+	return domains, nil
+}
+
+func FormatDomainPools(domains []string) string {
+	return strings.Join(domains, ",")
+}
+
+func NormalizeDomains(values []string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		domain, err := NormalizeDomain(value)
+		if err != nil {
+			return nil, err
+		}
+		if domain == "" || seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		out = append(out, domain)
+	}
+	return out, nil
+}
+
+func NormalizeDomain(input string) (string, error) {
+	domain := strings.TrimSpace(strings.ToLower(input))
+	domain = strings.TrimPrefix(domain, "http://")
+	domain = strings.TrimPrefix(domain, "https://")
+	if i := strings.IndexAny(domain, "/:"); i >= 0 {
+		domain = domain[:i]
+	}
+	domain = strings.TrimSuffix(domain, ".")
+	if domain == "" {
+		return "", nil
+	}
+	if domain == "*" {
+		return domain, nil
+	}
+	if strings.HasPrefix(domain, "*.") {
+		base := strings.TrimPrefix(domain, "*.")
+		if err := validateDomain(base); err != nil {
+			return "", fmt.Errorf("invalid domain %q: %w", input, err)
+		}
+		return domain, nil
+	}
+	if strings.Contains(domain, "*") {
+		return "", fmt.Errorf("invalid domain %q", input)
+	}
+	if err := validateDomain(domain); err != nil {
+		return "", fmt.Errorf("invalid domain %q: %w", input, err)
+	}
+	return domain, nil
+}
+
 func parsePort(input string) (int, error) {
 	port, err := strconv.Atoi(strings.TrimSpace(input))
 	if err != nil {
@@ -87,6 +161,34 @@ func parsePort(input string) (int, error) {
 	return port, nil
 }
 
+func validateDomain(domain string) error {
+	if len(domain) > 253 {
+		return fmt.Errorf("too long")
+	}
+	if ip := net.ParseIP(domain); ip != nil {
+		return nil
+	}
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return fmt.Errorf("must contain at least one dot")
+	}
+	for _, label := range labels {
+		if label == "" || len(label) > 63 {
+			return fmt.Errorf("invalid label")
+		}
+		if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return fmt.Errorf("label cannot start or end with hyphen")
+		}
+		for _, r := range label {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+			return fmt.Errorf("contains unsupported character %q", r)
+		}
+	}
+	return nil
+}
+
 type User struct {
 	Name         string      `json:"name"`
 	Password     string      `json:"password,omitempty"`
@@ -94,6 +196,7 @@ type User struct {
 	Role         string      `json:"role"`
 	Enabled      bool        `json:"enabled"`
 	PortPools    []PortRange `json:"portPools,omitempty"`
+	DomainPools  []string    `json:"domainPools,omitempty"`
 	MaxPorts     int         `json:"maxPorts,omitempty"`
 	FRPToken     string      `json:"frpToken,omitempty"`
 	NPSVerifyKey string      `json:"npsVerifyKey,omitempty"`
@@ -106,6 +209,7 @@ type PublicUser struct {
 	Role            string      `json:"role"`
 	Enabled         bool        `json:"enabled"`
 	PortPools       []PortRange `json:"portPools,omitempty"`
+	DomainPools     []string    `json:"domainPools,omitempty"`
 	MaxPorts        int         `json:"maxPorts,omitempty"`
 	HasPassword     bool        `json:"hasPassword"`
 	HasFRPToken     bool        `json:"hasFrpToken"`
@@ -140,6 +244,7 @@ func Public(u *User) PublicUser {
 		Role:            u.Role,
 		Enabled:         u.Enabled,
 		PortPools:       append([]PortRange(nil), u.PortPools...),
+		DomainPools:     append([]string(nil), u.DomainPools...),
 		MaxPorts:        u.MaxPorts,
 		HasPassword:     u.Password != "" || u.PasswordHash != "",
 		HasFRPToken:     u.FRPToken != "",

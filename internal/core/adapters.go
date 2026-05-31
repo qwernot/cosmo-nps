@@ -9,9 +9,13 @@ import (
 )
 
 type RuntimeConfig struct {
-	ServerAddr    string `json:"serverAddr"`
-	FRPServerPort int    `json:"frpServerPort"`
-	NPSServerPort int    `json:"npsServerPort"`
+	ServerAddr       string `json:"serverAddr"`
+	FRPServerPort    int    `json:"frpServerPort"`
+	FRPHTTPPort      int    `json:"frpHttpPort"`
+	FRPHTTPSPort     int    `json:"frpHttpsPort"`
+	NPSServerPort    int    `json:"npsServerPort"`
+	NPSHTTPProxyPort int    `json:"npsHttpProxyPort"`
+	NPSHTTPSPort     int    `json:"npsHttpsProxyPort"`
 }
 
 func (c RuntimeConfig) withDefaults() RuntimeConfig {
@@ -47,17 +51,21 @@ func RenderFRPC(user User, tunnels []Tunnel, cfg RuntimeConfig) (string, error) 
 		fmt.Fprintf(&b, "\n[[proxies]]\n")
 		fmt.Fprintf(&b, "name = %q\n", t.ID)
 		fmt.Fprintf(&b, "type = %q\n", t.Mode)
-		if len(t.Domains) > 0 {
+		if t.Mode == "http" || t.Mode == "https" {
+			if len(t.Domains) == 0 {
+				return "", fmt.Errorf("frp %s tunnel %q requires custom domains", t.Mode, t.ID)
+			}
 			fmt.Fprintf(&b, "customDomains = [%s]\n", quoteList(t.Domains))
+		} else if t.RemotePort > 0 {
+			fmt.Fprintf(&b, "remotePort = %d\n", t.RemotePort)
+		} else {
+			return "", fmt.Errorf("frp %s tunnel %q requires remote port", t.Mode, t.ID)
 		}
 		if t.LocalIP != "" {
 			fmt.Fprintf(&b, "localIP = %q\n", t.LocalIP)
 		}
 		if t.LocalPort > 0 {
 			fmt.Fprintf(&b, "localPort = %d\n", t.LocalPort)
-		}
-		if t.RemotePort > 0 {
-			fmt.Fprintf(&b, "remotePort = %d\n", t.RemotePort)
 		}
 	}
 	return b.String(), nil
@@ -79,6 +87,7 @@ func ExportFRPUsers(users []User) ([]byte, error) {
 		Role       string      `json:"role,omitempty"`
 		Enabled    bool        `json:"enabled"`
 		AllowPorts []PortRange `json:"allowPorts,omitempty"`
+		Domains    []string    `json:"domains,omitempty"`
 		MaxPorts   int         `json:"maxPorts,omitempty"`
 	}
 	out := make([]frpUser, 0, len(users))
@@ -90,6 +99,7 @@ func ExportFRPUsers(users []User) ([]byte, error) {
 			Role:       u.Role,
 			Enabled:    u.Enabled,
 			AllowPorts: append([]PortRange(nil), u.PortPools...),
+			Domains:    append([]string(nil), u.DomainPools...),
 			MaxPorts:   u.MaxPorts,
 		})
 	}

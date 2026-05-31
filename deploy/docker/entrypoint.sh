@@ -12,6 +12,8 @@ PUBLIC_ADDR="${PUBLIC_ADDR:-127.0.0.1}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
 FRP_BIND_PORT="${FRP_BIND_PORT:-17000}"
+FRP_HTTP_PORT="${FRP_HTTP_PORT:-9081}"
+FRP_HTTPS_PORT="${FRP_HTTPS_PORT:-9444}"
 FRP_DASHBOARD_PORT="${FRP_DASHBOARD_PORT:-0}"
 NPS_WEB_PORT="${NPS_WEB_PORT:-0}"
 NPS_BRIDGE_PORT="${NPS_BRIDGE_PORT:-18024}"
@@ -43,6 +45,8 @@ fi
 
 sed -i \
   -e "s/^bindPort = .*/bindPort = $FRP_BIND_PORT/" \
+  -e "s/^vhostHTTPPort = .*/vhostHTTPPort = $FRP_HTTP_PORT/" \
+  -e "s/^vhostHTTPSPort = .*/vhostHTTPSPort = $FRP_HTTPS_PORT/" \
   -e "s/^port = .*/port = $FRP_DASHBOARD_PORT/" \
   -e "s/^user = .*/user = \"$ADMIN_USER\"/" \
   -e "s/^password = .*/password = \"$ADMIN_PASSWORD\"/" \
@@ -71,8 +75,12 @@ sed -i \
   -embedded-engines \
   -public-addr "$PUBLIC_ADDR" \
   -frp-port "$FRP_BIND_PORT" \
+  -frp-http-port "$FRP_HTTP_PORT" \
+  -frp-https-port "$FRP_HTTPS_PORT" \
   -frp-dashboard-port "$FRP_DASHBOARD_PORT" \
   -nps-port "$NPS_BRIDGE_PORT" \
+  -nps-http-port "$NPS_HTTP_PORT" \
+  -nps-https-port "$NPS_HTTPS_PORT" \
   -frp-users-path "$FRP_DIR/frps-users.json" \
   -nps-clients-path "$NPS_CONF_DIR/clients.json" \
   -config-out-dir "$EXPORT_DIR" \

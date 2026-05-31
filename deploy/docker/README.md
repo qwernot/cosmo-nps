@@ -49,6 +49,8 @@ http://服务器IP:8088
 18025/tcp  NPS TLS bridge
 9080/tcp   NPS HTTP proxy
 9443/tcp   NPS HTTPS proxy
+9081/tcp   FRP HTTP vhost
+9444/tcp   FRP HTTPS vhost
 10000-20000/tcp 用户隧道端口范围
 10000-20000/udp 如果需要 UDP 隧道
 ```
@@ -64,11 +66,12 @@ NPS_WEB_PORT=0
 
 1. 登录统一后台。
 2. 创建用户并分配固定端口池。
-3. 创建 FRP 或 NPS 隧道。
-4. 在“配置”页复制该用户的 `frpc.toml` 或 `npc` 命令。
-5. 用户启动客户端。
+3. 如需 HTTP/HTTPS，给用户分配域名池。
+4. 创建 FRP 或 NPS 隧道。
+5. 在“配置”页复制该用户的 `frpc.toml` 或 `npc` 命令。
+6. 用户启动客户端。
 
-后台保存用户时会自动同步 FRP/NPS 运行时，不需要手动同步用户。
+TCP/UDP/SOCKS5 隧道使用端口池。HTTP/HTTPS 隧道使用域名池，不需要远程端口。
 
 ## 数据
 

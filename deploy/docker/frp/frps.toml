@@ -1,4 +1,6 @@
 bindPort = 17000
+vhostHTTPPort = 9081
+vhostHTTPSPort = 9444
 
 [webServer]
 addr = "0.0.0.0"

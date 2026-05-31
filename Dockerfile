@@ -18,5 +18,5 @@ COPY upstream/NPS/web /opt/tunnel-control/defaults/nps/web
 COPY deploy/docker/entrypoint.sh /usr/local/bin/tunnel-control-entrypoint
 RUN chmod +x /usr/local/bin/tunnel-control-entrypoint && mkdir -p /app/data
 
-EXPOSE 8088 17000 18024 18025 9080 9443
+EXPOSE 8088 17000 18024 18025 9080 9081 9443 9444
 ENTRYPOINT ["/usr/local/bin/tunnel-control-entrypoint"]
