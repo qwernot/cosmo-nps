@@ -197,14 +197,8 @@ function renderEngines() {
       <td>${e.configured ? '<span class="badge ok">已配置</span>' : '<span class="badge warn">未配置</span>'}</td>
       <td>${e.running ? `<span class="badge ok">运行${e.pid ? ` PID ${e.pid}` : ""}</span>` : '<span class="badge warn">未运行</span>'}</td>
       <td>${e.port ? `${e.port} ${e.portOpen ? '<span class="badge ok">open</span>' : '<span class="badge warn">closed</span>'}` : "-"}</td>
-      <td>
-        <div class="cell-actions">
-          <button class="button small secondary" data-start-engine="${escapeHtml(e.engine)}" ${embedded || !e.configured ? "disabled" : ""}>启动</button>
-          <button class="button small danger" data-stop-engine="${escapeHtml(e.engine)}" ${embedded ? "disabled" : ""}>停止</button>
-        </div>
-      </td>
     </tr>
-  `).join("") || emptyRow(5);
+  `).join("") || emptyRow(4);
   const client = state.runtime?.client || {};
   const engineCfg = state.runtime?.engines || {};
   $("#engine-help").textContent = [
@@ -226,7 +220,7 @@ function renderEngines() {
     `配置导出目录: ${state.runtime?.configOutDir || "-"}`,
     "",
     embedded
-      ? "内置模式下启动/停止由容器生命周期控制；修改端口需要重建或重启容器。"
+      ? "内置模式下引擎由容器生命周期管理；修改端口需要重建或重启容器。"
       : `外部 FRP: ${engineCfg.frpsBin || "(未配置)"}\n外部 NPS: ${engineCfg.npsBin || "(未配置)"}`,
   ].join("\n");
 }
@@ -452,13 +446,6 @@ async function copyConfig() {
   toast("已复制");
 }
 
-async function engineAction(engine, action) {
-  if (!isAdmin()) return;
-  await api(`/api/engines/${encodeURIComponent(engine)}/${action}`, { method: "POST" });
-  await refresh();
-  toast(action === "start" ? "引擎已启动" : "引擎已停止");
-}
-
 async function exportConfigs() {
   if (!isAdmin()) return;
   const result = await api("/api/export/configs", { method: "POST" });
@@ -474,8 +461,6 @@ document.addEventListener("click", async (event) => {
   if (target.dataset.editTunnel) editTunnel(target.dataset.editTunnel);
   if (target.dataset.deleteUser) await deleteUser(target.dataset.deleteUser).catch((err) => toast(err.message));
   if (target.dataset.deleteTunnel) await deleteTunnel(target.dataset.deleteTunnel).catch((err) => toast(err.message));
-  if (target.dataset.startEngine) await engineAction(target.dataset.startEngine, "start").catch((err) => toast(err.message));
-  if (target.dataset.stopEngine) await engineAction(target.dataset.stopEngine, "stop").catch((err) => toast(err.message));
 });
 
 $("#login-form").addEventListener("submit", (event) => login(event).catch((err) => toast(err.message)));
