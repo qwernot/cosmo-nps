@@ -45,6 +45,32 @@ func TestCreateTunnelValidatesPortPoolAndReuse(t *testing.T) {
 	}
 }
 
+func TestCreateTunnelAllowsSamePortAcrossTCPAndUDP(t *testing.T) {
+	store, err := NewStore(filepath.Join(t.TempDir(), "db.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, _ := ParsePortRanges("10000")
+	if _, err := store.UpsertUser(User{Name: "alice", Role: RoleUser, Enabled: true, PortPools: pool, MaxPorts: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateTunnel(Tunnel{
+		UserName: "alice", Engine: EngineFRP, Mode: "tcp", RemotePort: 10000, LocalPort: 8080,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateTunnel(Tunnel{
+		UserName: "alice", Engine: EngineFRP, Mode: "udp", RemotePort: 10000, LocalPort: 8081,
+	}); err != nil {
+		t.Fatalf("tcp and udp should be allowed to share the same remote port: %v", err)
+	}
+	if _, err := store.CreateTunnel(Tunnel{
+		UserName: "alice", Engine: EngineNPS, Mode: "socks5", RemotePort: 10000, LocalPort: 8082,
+	}); err == nil {
+		t.Fatal("expected socks5 to conflict with tcp on the same remote port")
+	}
+}
+
 func TestCreateHTTPSTunnelValidatesDomainPool(t *testing.T) {
 	store, err := NewStore(filepath.Join(t.TempDir(), "db.json"))
 	if err != nil {

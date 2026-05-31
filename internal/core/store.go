@@ -371,8 +371,11 @@ func (s *Store) validateTunnelLocked(in Tunnel, existingID string) error {
 			return fmt.Errorf("remote port %d is outside user port pool %s", in.RemotePort, FormatPortRanges(u.PortPools))
 		}
 		for _, existing := range s.db.Tunnels {
-			if existing.ID != existingID && existing.RemotePort == in.RemotePort {
-				return fmt.Errorf("remote port %d is already used by tunnel %s", in.RemotePort, existing.ID)
+			if existing.ID == existingID || !isPortMode(existing.Mode) {
+				continue
+			}
+			if existing.RemotePort == in.RemotePort && portTransport(existing.Mode) == portTransport(in.Mode) {
+				return fmt.Errorf("%s remote port %d is already used by tunnel %s", portTransport(in.Mode), in.RemotePort, existing.ID)
 			}
 		}
 		in.Domains = nil
@@ -498,6 +501,13 @@ func isPortMode(mode string) bool {
 
 func isDomainMode(mode string) bool {
 	return mode == "http" || mode == "https"
+}
+
+func portTransport(mode string) string {
+	if mode == "udp" {
+		return "udp"
+	}
+	return "tcp"
 }
 
 func nextTunnelID(userName, engine, mode string, port int) string {

@@ -323,7 +323,7 @@ function updateTunnelModeFields() {
   field(form, "domains").required = domainMode;
   $("#mode-note").textContent = domainMode
     ? "HTTP/HTTPS 不占用用户端口池，必须填写已分配域名；域名 DNS 需要指向服务器。"
-    : "TCP/UDP/SOCKS5 必须填写用户端口池内的远程端口。";
+    : "TCP/SOCKS5 与 UDP 按协议分别占用端口；远程端口必须在用户端口池内。";
   if (domainMode) {
     field(form, "remotePort").value = "";
   } else {
