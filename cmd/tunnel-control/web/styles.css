@@ -92,6 +92,13 @@ select {
   font: inherit;
 }
 
+input:disabled,
+select:disabled {
+  background: #f1f5f9;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .sidebar {
   min-height: 100vh;
   background: #111827;
@@ -370,6 +377,13 @@ select:focus {
 .checkline input {
   width: 16px;
   min-height: 16px;
+}
+
+.field-note {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .table-wrap {

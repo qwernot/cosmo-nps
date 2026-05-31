@@ -109,6 +109,7 @@ type SessionContext struct {
 	UserStore interface {
 		UserPorts(string) []types.PortsRange
 		UserMaxPorts(string) int
+		UserDomains(string) []string
 	}
 	// control connection
 	Conn *msg.Conn

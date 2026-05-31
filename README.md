@@ -5,11 +5,19 @@ Tunnel Control 是一个单容器穿透服务后台，把 `frp` 和 `nps` 的服
 目标是只保留一个控制后台：
 
 - 一个 Web 登录入口
-- 一套总管理员和普通用户
-- 一套用户端口池、域名池和最大隧道数限制
+- 总管理员和普通用户
+- 统一的用户端口池、域名池和最大隧道数限制
 - 一个地方创建 FRP/NPS 隧道
-- 普通用户只能看到自己的信息、资源池、隧道和客户端配置
+- 普通用户只能看到自己的资源池、隧道和客户端配置
 - FRP/NPS 原生后台默认不对外开放
+
+## 本次更新
+
+- 后台前端恢复正常中文显示，并补上“引擎”页面。
+- 引擎页面显示单容器内置 FRP/NPS 状态、端口和运行模式。
+- HTTP/HTTPS 隧道改为域名池模式，TCP/UDP/SOCKS5 继续使用端口池。
+- FRP 服务端增加域名池兜底校验，用户私自修改 `frpc.toml` 也不能越权绑定域名。
+- Docker 镜像已在 `192.168.6.64` 上重新部署测试，并推送到 Docker Hub。
 
 ## 镜像
 
@@ -23,11 +31,11 @@ docker pull darkver8/tunnel-control:latest
 tunnel-control
 ```
 
-它会在进程内启动：
+这个主进程会同时启动：
 
 - 统一 Web 后台
-- 嵌入式 frps
-- 嵌入式 nps bridge
+- 内置 FRP 服务端
+- 内置 NPS bridge
 - NPS HTTP/HTTPS proxy
 
 ## 快速部署
@@ -74,14 +82,16 @@ http://服务器IP:8088
 ## 默认端口
 
 ```text
-8088/tcp   统一后台
-17000/tcp  FRP 客户端接入端口
-18024/tcp  NPS bridge
-18025/tcp  NPS TLS bridge
-9080/tcp   NPS HTTP proxy
-9443/tcp   NPS HTTPS proxy
-9081/tcp   FRP HTTP vhost
-9444/tcp   FRP HTTPS vhost
+8088/tcp        统一后台
+17000/tcp       FRP 客户端接入端口
+18024/tcp       NPS bridge
+18025/tcp       NPS TLS bridge
+9080/tcp        NPS HTTP proxy
+9443/tcp        NPS HTTPS proxy
+9081/tcp        FRP HTTP vhost
+9444/tcp        FRP HTTPS vhost
+10000-20000/tcp 用户 TCP/SOCKS5 隧道端口范围
+10000-20000/udp 用户 UDP 隧道端口范围
 ```
 
 FRP dashboard 和 NPS dashboard 默认关闭：
@@ -118,6 +128,7 @@ HTTP/HTTPS 使用域名池：
 - 域名必须在用户域名池内
 - 支持精确域名，例如 `app.example.com`
 - 支持泛域名池，例如 `*.example.com`
+- FRP 服务端也会校验域名池，用户私自修改 `frpc.toml` 不能越权绑定别人的域名
 
 FRP 和 NPS 的 HTTP 入口端口不同：
 
@@ -128,7 +139,7 @@ FRP HTTP:  http://域名:9081
 FRP HTTPS: https://域名:9444
 ```
 
-生产环境一般会把 80/443 通过安全组或前置反向代理转发到对应入口端口。
+生产环境一般会把 80/443 通过安全组、端口转发或前置反向代理转发到对应入口端口。
 
 ## 客户端
 
@@ -158,7 +169,7 @@ NPS 用户配置在后台“配置”页生成，格式类似：
 ./npc -server=SERVER_IP:18024 -vkey=用户自己的 verify key
 ```
 
-NPS 的 HTTP/HTTPS 域名隧道在服务端后台自动同步为 Host 记录，客户端仍然只需要运行同一个 `npc` 连接。
+NPS 的 HTTP/HTTPS 域名隧道会在服务端自动同步为 Host 记录，客户端仍然只需要运行同一个 `npc` 连接。
 
 ## 数据目录
 

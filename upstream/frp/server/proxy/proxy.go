@@ -21,6 +21,7 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +69,7 @@ type GetWorkConnFn func() (*WorkConn, error)
 type UserPortProvider interface {
 	UserPorts(string) []types.PortsRange
 	UserMaxPorts(string) int
+	UserDomains(string) []string
 }
 
 type Proxy interface {
@@ -113,6 +115,13 @@ func (pxy *BaseProxy) sessionUserPorts() []types.PortsRange {
 		return nil
 	}
 	return pxy.userPorts.UserPorts(pxy.userInfo.User)
+}
+
+func (pxy *BaseProxy) sessionUserDomains() []string {
+	if pxy.userPorts == nil {
+		return nil
+	}
+	return pxy.userPorts.UserDomains(pxy.userInfo.User)
 }
 
 func (pxy *BaseProxy) GetName() string {
@@ -239,6 +248,36 @@ func (pxy *BaseProxy) buildDomains(customDomains []string, subDomain string) []s
 		domains = append(domains, subDomain+"."+pxy.serverCfg.SubDomainHost)
 	}
 	return domains
+}
+
+func (pxy *BaseProxy) validateUserDomains(domains []string) error {
+	if !pxy.sessionUserStoreEnabled() {
+		return nil
+	}
+	allowed := pxy.sessionUserDomains()
+	for _, domain := range domains {
+		if !domainAllowed(domain, allowed) {
+			return fmt.Errorf("domain %s is outside user domain pool", domain)
+		}
+	}
+	return nil
+}
+
+func domainAllowed(domain string, pools []string) bool {
+	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	for _, pool := range pools {
+		pool = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(pool)), ".")
+		if pool == "*" || pool == domain {
+			return true
+		}
+		if strings.HasPrefix(pool, "*.") {
+			suffix := strings.TrimPrefix(pool, "*.")
+			if domain != suffix && strings.HasSuffix(domain, "."+suffix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // startCommonTCPListenersHandler start a goroutine handler for each listener.

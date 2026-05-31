@@ -96,6 +96,7 @@ func SyncFRPState(users []core.User) error {
 			Role:       user.Role,
 			Enabled:    true,
 			AllowPorts: toFRPPortRanges(user.PortPools),
+			Domains:    append([]string(nil), user.DomainPools...),
 			MaxPorts:   user.MaxPorts,
 		}); err != nil {
 			return err

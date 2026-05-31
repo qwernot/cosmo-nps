@@ -2,13 +2,13 @@
 
 这个目录提供 `darkver8/tunnel-control:latest` 的 Compose 部署示例。
 
-当前部署是一个容器：
+当前部署只有一个容器：
 
 ```text
 tunnel-stack
 ```
 
-容器内是一个主进程：
+容器内只有一个主进程：
 
 ```text
 tunnel-control
@@ -43,15 +43,15 @@ http://服务器IP:8088
 需要在服务器防火墙或安全组放行：
 
 ```text
-8088/tcp   统一后台
-17000/tcp  FRP 客户端接入端口
-18024/tcp  NPS bridge
-18025/tcp  NPS TLS bridge
-9080/tcp   NPS HTTP proxy
-9443/tcp   NPS HTTPS proxy
-9081/tcp   FRP HTTP vhost
-9444/tcp   FRP HTTPS vhost
-10000-20000/tcp 用户隧道端口范围
+8088/tcp        统一后台
+17000/tcp       FRP 客户端接入端口
+18024/tcp       NPS bridge
+18025/tcp       NPS TLS bridge
+9080/tcp        NPS HTTP proxy
+9443/tcp        NPS HTTPS proxy
+9081/tcp        FRP HTTP vhost
+9444/tcp        FRP HTTPS vhost
+10000-20000/tcp 用户 TCP/SOCKS5 隧道端口范围
 10000-20000/udp 如果需要 UDP 隧道
 ```
 
@@ -72,6 +72,8 @@ NPS_WEB_PORT=0
 6. 用户启动客户端。
 
 TCP/UDP/SOCKS5 隧道使用端口池。HTTP/HTTPS 隧道使用域名池，不需要远程端口。
+
+域名模式下，DNS 需要指向服务器；如果不想暴露 9080/9081/9443/9444，可以用安全组、端口转发或反向代理把 80/443 转到对应入口端口。
 
 ## 数据
 

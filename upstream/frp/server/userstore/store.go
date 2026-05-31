@@ -28,6 +28,7 @@ type User struct {
 	Role        string             `json:"role,omitempty"`
 	Enabled     bool               `json:"enabled"`
 	AllowPorts  []types.PortsRange `json:"allowPorts,omitempty"`
+	Domains     []string           `json:"domains,omitempty"`
 	MaxPorts    int                `json:"maxPorts,omitempty"`
 	CreatedAt   time.Time          `json:"createdAt"`
 	UpdatedAt   time.Time          `json:"updatedAt"`
@@ -39,6 +40,7 @@ type PublicUser struct {
 	Role        string             `json:"role,omitempty"`
 	Enabled     bool               `json:"enabled"`
 	AllowPorts  []types.PortsRange `json:"allowPorts,omitempty"`
+	Domains     []string           `json:"domains,omitempty"`
 	MaxPorts    int                `json:"maxPorts,omitempty"`
 	HasPassword bool               `json:"hasPassword"`
 	HasToken    bool               `json:"hasToken"`
@@ -134,6 +136,7 @@ func (s *Store) Upsert(in User) (PublicUser, error) {
 	u.Role = in.Role
 	u.Enabled = in.Enabled
 	u.AllowPorts = slices.Clone(in.AllowPorts)
+	u.Domains = slices.Clone(in.Domains)
 	u.MaxPorts = in.MaxPorts
 	if in.Password != "" {
 		u.Password = in.Password
@@ -236,6 +239,16 @@ func (s *Store) UserMaxPorts(name string) int {
 	return u.MaxPorts
 }
 
+func (s *Store) UserDomains(name string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	u, ok := s.data[name]
+	if !ok || !u.Enabled {
+		return nil
+	}
+	return slices.Clone(u.Domains)
+}
+
 func (s *Store) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		user, password, ok := req.BasicAuth()
@@ -301,6 +314,7 @@ func toPublicUser(u *User) PublicUser {
 		Role:        u.Role,
 		Enabled:     u.Enabled,
 		AllowPorts:  slices.Clone(u.AllowPorts),
+		Domains:     slices.Clone(u.Domains),
 		MaxPorts:    u.MaxPorts,
 		HasPassword: u.Password != "",
 		HasToken:    u.Token != "",
@@ -313,6 +327,7 @@ func toPublicUser(u *User) PublicUser {
 func cloneUser(u *User) *User {
 	out := *u
 	out.AllowPorts = slices.Clone(u.AllowPorts)
+	out.Domains = slices.Clone(u.Domains)
 	return &out
 }
 

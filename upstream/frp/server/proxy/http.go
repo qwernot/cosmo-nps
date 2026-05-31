@@ -76,6 +76,9 @@ func (pxy *HTTPProxy) Run() (remoteAddr string, err error) {
 	}()
 
 	domains := pxy.buildDomains(pxy.cfg.CustomDomains, pxy.cfg.SubDomain)
+	if err = pxy.validateUserDomains(domains); err != nil {
+		return
+	}
 
 	addrs := make([]string, 0)
 	for _, domain := range domains {

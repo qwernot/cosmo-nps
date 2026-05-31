@@ -8,11 +8,11 @@ const state = {
 };
 
 const titles = {
-  dashboard: ["概览", "查看账号、端口池和隧道使用情况。"],
-  users: ["用户", "管理员创建账号，分配固定端口池。"],
-  tunnels: ["隧道", "创建 FRP 或 NPS 隧道，端口只能来自分配范围。"],
-  configs: ["配置", "查看自己的 frpc.toml 和 npc 启动命令。"],
-  engines: ["引擎", "启动、停止和检查 FRP/NPS 运行状态。"],
+  dashboard: ["概览", "统一用户、端口池、域名池和双引擎隧道。"],
+  users: ["用户", "管理员创建账号，分配固定端口池和域名池。"],
+  tunnels: ["隧道", "创建 FRP 或 NPS 隧道；TCP/UDP/SOCKS5 用端口，HTTP/HTTPS 用域名。"],
+  configs: ["配置", "查看用户自己的 frpc.toml 和 npc 启动命令。"],
+  engines: ["引擎", "查看单容器内置 FRP/NPS 的运行状态和对外端口。"],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -64,7 +64,7 @@ function isDomainMode(mode) {
 }
 
 function tunnelEntry(t) {
-  return isDomainMode(t.mode) ? formatDomains(t.domains) : (t.remotePort || "-");
+  return isDomainMode(t.mode) ? formatDomains(t.domains) : t.remotePort || "-";
 }
 
 function toast(message) {
@@ -95,6 +95,7 @@ async function boot() {
 
 async function refresh() {
   const requests = [api("/api/runtime"), api("/api/users"), api("/api/tunnels")];
+  if (isAdmin()) requests.push(api("/api/engines"));
   const [runtime, users, tunnels, engines = []] = await Promise.all(requests);
   state.runtime = runtime;
   state.users = users;
@@ -105,9 +106,10 @@ async function refresh() {
 
 function render() {
   $("#session-user").textContent = `${state.me.name} (${state.me.role})`;
-  $("#runtime-server").textContent = `${state.runtime?.client?.serverAddr || "-"}:${state.runtime?.client?.frpServerPort || "-"}`;
+  const client = state.runtime?.client || {};
+  $("#runtime-server").textContent = `${client.serverAddr || "-"}:${client.frpServerPort || "-"}`;
   $$(".admin-only").forEach((el) => el.classList.toggle("hidden", !isAdmin()));
-  if (!isAdmin() && state.view === "users") {
+  if (!isAdmin() && (state.view === "users" || state.view === "engines")) {
     switchView("dashboard");
   }
   renderUserOptions();
@@ -115,6 +117,8 @@ function render() {
   renderUsers();
   renderTunnels();
   renderDashboardTables();
+  renderEngines();
+  updateTunnelModeFields();
 }
 
 function renderMetrics() {
@@ -128,7 +132,7 @@ function renderDashboardTables() {
   $("#dashboard-users").innerHTML = state.users.slice(0, 6).map((u) => `
     <tr>
       <td>${escapeHtml(u.name)}</td>
-      <td title="${escapeHtml(formatDomains(u.domainPools))}">${escapeHtml(formatPools(u.portPools))}</td>
+      <td title="${escapeHtml(`端口: ${formatPools(u.portPools)} 域名: ${formatDomains(u.domainPools)}`)}">${escapeHtml(formatPools(u.portPools))}</td>
       <td>${statusBadge(u.enabled)}</td>
     </tr>
   `).join("") || emptyRow(3);
@@ -171,7 +175,7 @@ function renderTunnels() {
       <td>${escapeHtml(t.userName)}</td>
       <td>${engineBadge(t.engine)}</td>
       <td>${escapeHtml(t.mode)}</td>
-      <td>${escapeHtml(tunnelEntry(t))}</td>
+      <td title="${escapeHtml(tunnelEntry(t))}">${escapeHtml(tunnelEntry(t))}</td>
       <td>${escapeHtml(`${t.localIp || "-"}:${t.localPort || "-"}`)}</td>
       <td>${statusBadge(t.enabled)}</td>
       <td>
@@ -186,42 +190,53 @@ function renderTunnels() {
 
 function renderEngines() {
   if (!isAdmin()) return;
+  const embedded = Boolean(state.runtime?.engines?.embedded);
   $("#engines-table").innerHTML = state.engines.map((e) => `
     <tr>
       <td>${engineBadge(e.engine)}</td>
       <td>${e.configured ? '<span class="badge ok">已配置</span>' : '<span class="badge warn">未配置</span>'}</td>
-      <td>${e.running ? `<span class="badge ok">运行 PID ${e.pid}</span>` : '<span class="badge warn">未运行</span>'}</td>
+      <td>${e.running ? `<span class="badge ok">运行${e.pid ? ` PID ${e.pid}` : ""}</span>` : '<span class="badge warn">未运行</span>'}</td>
       <td>${e.port ? `${e.port} ${e.portOpen ? '<span class="badge ok">open</span>' : '<span class="badge warn">closed</span>'}` : "-"}</td>
       <td>
         <div class="cell-actions">
-          <button class="button small secondary" data-start-engine="${escapeHtml(e.engine)}" ${e.configured ? "" : "disabled"}>启动</button>
-          <button class="button small danger" data-stop-engine="${escapeHtml(e.engine)}">停止</button>
+          <button class="button small secondary" data-start-engine="${escapeHtml(e.engine)}" ${embedded || !e.configured ? "disabled" : ""}>启动</button>
+          <button class="button small danger" data-stop-engine="${escapeHtml(e.engine)}" ${embedded ? "disabled" : ""}>停止</button>
         </div>
       </td>
     </tr>
   `).join("") || emptyRow(5);
+  const client = state.runtime?.client || {};
   const engineCfg = state.runtime?.engines || {};
   $("#engine-help").textContent = [
-    "当前启动参数：",
-    `frps: ${engineCfg.frpsBin || "(未配置)"}`,
-    `frps config: ${engineCfg.frpsConfig || "(未配置)"}`,
-    `nps: ${engineCfg.npsBin || "(未配置)"}`,
-    `nps workdir: ${engineCfg.npsWorkDir || "(未配置)"}`,
-    `FRP 用户同步文件: ${state.runtime?.frpUsersPath || "-"}`,
+    `运行模式: ${embedded ? "单容器内置 FRP/NPS" : "外部进程"}`,
+    `公网地址: ${client.serverAddr || "-"}`,
+    "",
+    "FRP:",
+    `  客户端连接端口: ${client.frpServerPort || "-"}`,
+    `  HTTP 入口端口: ${client.frpHttpPort || "-"}`,
+    `  HTTPS 入口端口: ${client.frpHttpsPort || "-"}`,
+    `  用户文件: ${state.runtime?.frpUsersPath || "-"}`,
+    "",
+    "NPS:",
+    `  NPC 连接端口: ${client.npsServerPort || "-"}`,
+    `  HTTP 入口端口: ${client.npsHttpProxyPort || "-"}`,
+    `  HTTPS 入口端口: ${client.npsHttpsProxyPort || "-"}`,
+    `  客户端文件: ${state.runtime?.npsClientsPath || "-"}`,
+    "",
     `配置导出目录: ${state.runtime?.configOutDir || "-"}`,
     "",
-    "示例：",
-    ".\\tunnel-control.exe -addr :18088 -public-addr 你的服务器IP \\",
-    "  -frps-bin C:\\path\\frps.exe -frps-config C:\\path\\frps.toml \\",
-    "  -nps-bin C:\\path\\nps.exe -nps-workdir C:\\path\\nps",
+    embedded
+      ? "内置模式下启动/停止由容器生命周期控制；修改端口需要重建或重启容器。"
+      : `外部 FRP: ${engineCfg.frpsBin || "(未配置)"}\n外部 NPS: ${engineCfg.npsBin || "(未配置)"}`,
   ].join("\n");
 }
 
 function renderUserOptions() {
   const options = state.users.map((u) => `<option value="${escapeHtml(u.name)}">${escapeHtml(u.name)}</option>`).join("");
-  $('select[name="userName"]').innerHTML = options;
+  const tunnelUser = $('select[name="userName"]');
+  tunnelUser.innerHTML = options;
   $("#config-user").innerHTML = options;
-  $('select[name="userName"]').disabled = !isAdmin();
+  tunnelUser.disabled = !isAdmin();
 }
 
 function statusBadge(enabled) {
@@ -237,8 +252,7 @@ function emptyRow(cols) {
 }
 
 function switchView(view) {
-  if (view === "engines") return;
-  if (!isAdmin() && view === "users") return;
+  if ((view === "users" || view === "engines") && !isAdmin()) return;
   state.view = view;
   $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
   $$(".view").forEach((el) => el.classList.toggle("active", el.id === `view-${view}`));
@@ -308,11 +322,18 @@ function editTunnel(id) {
 function updateTunnelModeFields() {
   const form = $("#tunnel-form");
   const mode = field(form, "mode").value;
-  field(form, "remotePort").disabled = isDomainMode(mode);
-  field(form, "remotePort").required = !isDomainMode(mode);
-  field(form, "domains").required = isDomainMode(mode);
-  if (isDomainMode(mode)) {
+  const domainMode = isDomainMode(mode);
+  field(form, "remotePort").disabled = domainMode;
+  field(form, "remotePort").required = !domainMode;
+  field(form, "domains").disabled = !domainMode;
+  field(form, "domains").required = domainMode;
+  $("#mode-note").textContent = domainMode
+    ? "HTTP/HTTPS 不占用用户端口池，必须填写已分配域名；域名 DNS 需要指向服务器。"
+    : "TCP/UDP/SOCKS5 必须填写用户端口池内的远程端口。";
+  if (domainMode) {
     field(form, "remotePort").value = "";
+  } else {
+    field(form, "domains").value = "";
   }
 }
 
@@ -382,7 +403,7 @@ async function saveTunnel(event) {
     remotePort: isDomainMode(data.mode) ? 0 : Number(data.remotePort || 0),
     localIp: data.localIp.trim() || "127.0.0.1",
     localPort: Number(data.localPort || 0),
-    domains: data.domains.split(",").map((v) => v.trim()).filter(Boolean),
+    domains: isDomainMode(data.mode) ? data.domains.split(",").map((v) => v.trim()).filter(Boolean) : [],
     remark: data.remark.trim(),
     enabled: field(form, "enabled").checked,
   };
@@ -438,19 +459,10 @@ async function engineAction(engine, action) {
   toast(action === "start" ? "引擎已启动" : "引擎已停止");
 }
 
-async function syncFRPUsers() {
-  if (!isAdmin()) return;
-  const result = await api("/api/sync/frp-users", { method: "POST" });
-  toast("运行状态已同步");
-}
-
 async function exportConfigs() {
   if (!isAdmin()) return;
   const result = await api("/api/export/configs", { method: "POST" });
   toast(`已导出到 ${result.dir}`);
-  if (state.view === "engines") {
-    await refresh();
-  }
 }
 
 document.addEventListener("click", async (event) => {
@@ -470,8 +482,7 @@ $("#login-form").addEventListener("submit", (event) => login(event).catch((err) 
 $("#logout-button").addEventListener("click", () => logout().catch((err) => toast(err.message)));
 $("#password-button").addEventListener("click", () => changeOwnPassword().catch((err) => toast(err.message)));
 $("#refresh-button").addEventListener("click", () => refresh().then(() => toast("已刷新")).catch((err) => toast(err.message)));
-const refreshEngines = $("#refresh-engines");
-if (refreshEngines) refreshEngines.addEventListener("click", () => refresh().then(() => toast("已刷新")).catch((err) => toast(err.message)));
+$("#refresh-engines").addEventListener("click", () => refresh().then(() => toast("已刷新")).catch((err) => toast(err.message)));
 $("#user-form").addEventListener("submit", (event) => saveUser(event).catch((err) => toast(err.message)));
 $("#tunnel-form").addEventListener("submit", (event) => saveTunnel(event).catch((err) => toast(err.message)));
 $('select[name="mode"]').addEventListener("change", updateTunnelModeFields);
