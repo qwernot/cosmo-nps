@@ -4,6 +4,7 @@ const state = {
   tunnels: [],
   engines: [],
   runtime: null,
+  diagnostics: null,
   view: "dashboard",
 };
 
@@ -94,12 +95,13 @@ async function boot() {
 }
 
 async function refresh() {
-  const requests = [api("/api/runtime"), api("/api/users"), api("/api/tunnels")];
+  const requests = [api("/api/runtime"), api("/api/users"), api("/api/tunnels"), api("/api/diagnostics")];
   if (isAdmin()) requests.push(api("/api/engines"));
-  const [runtime, users, tunnels, engines = []] = await Promise.all(requests);
+  const [runtime, users, tunnels, diagnostics, engines = []] = await Promise.all(requests);
   state.runtime = runtime;
   state.users = users;
   state.tunnels = tunnels;
+  state.diagnostics = diagnostics;
   state.engines = engines;
   render();
 }
@@ -117,6 +119,7 @@ function render() {
   renderUsers();
   renderTunnels();
   renderDashboardTables();
+  renderDiagnostics();
   renderEngines();
   updateTunnelModeFields();
 }
@@ -153,6 +156,7 @@ function renderUsers() {
       <td title="${escapeHtml(formatPools(u.portPools))}">${escapeHtml(formatPools(u.portPools))}</td>
       <td title="${escapeHtml(formatDomains(u.domainPools))}">${escapeHtml(formatDomains(u.domainPools))}</td>
       <td>${u.maxPorts || 0}</td>
+      <td>${resourceSummary(u.name)}</td>
       <td>
         <span class="badge ${u.hasFrpToken ? "ok" : "warn"}">FRP</span>
         <span class="badge ${u.hasNpsVerifyKey ? "ok" : "warn"}">NPS</span>
@@ -165,7 +169,65 @@ function renderUsers() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(7);
+  `).join("") || emptyRow(8);
+}
+
+function renderDiagnostics() {
+  const diagnostics = state.diagnostics || {};
+  const generatedAt = diagnostics.generatedAt ? new Date(diagnostics.generatedAt).toLocaleString() : "-";
+  $("#diagnostics-time").textContent = `更新 ${generatedAt}`;
+  const checks = diagnostics.checks || [];
+  $("#diagnostic-checks").innerHTML = checks.length ? checks.map((check) => `
+    <div class="check-item">
+      <span>${escapeHtml(check.name)}</span>
+      <strong>${check.port ? `${escapeHtml(check.host)}:${check.port}` : "-"}</strong>
+      <span class="badge ${check.open ? "ok" : "warn"}">${check.open ? "正常" : "异常"}</span>
+    </div>
+  `).join("") : `<div class="muted-box">${isAdmin() ? "暂无监听自检数据" : "管理员可查看监听自检"}</div>`;
+  const resources = diagnostics.resources || [];
+  $("#diagnostic-resources").innerHTML = resources.length ? resources.map((usage) => `
+    <div class="resource-card">
+      <div class="resource-head">
+        <strong>${escapeHtml(usage.userName)}</strong>
+        <span>${usage.tunnelLimit > 0 ? `${usage.tunnelUsed}/${usage.tunnelLimit} 隧道` : `${usage.tunnelUsed} 隧道`}</span>
+      </div>
+      ${resourceMeter("TCP", usage.tcpUsed, usage.portTotal)}
+      ${resourceMeter("UDP", usage.udpUsed, usage.portTotal)}
+      ${resourceMeter("域名", usage.domainUsed, usage.hasWildcard ? -1 : usage.domainTotal)}
+    </div>
+  `).join("") : '<div class="muted-box">暂无资源数据</div>';
+}
+
+function resourceSummary(userName) {
+  const usage = resourceFor(userName);
+  if (!usage) return "-";
+  const domainTotal = usage.hasWildcard ? "不限" : usage.domainTotal;
+  return `
+    <div class="resource-mini">
+      <span>TCP ${usage.tcpUsed}/${usage.portTotal}</span>
+      <span>UDP ${usage.udpUsed}/${usage.portTotal}</span>
+      <span>域名 ${usage.domainUsed}/${domainTotal}</span>
+    </div>
+  `;
+}
+
+function resourceFor(userName) {
+  return (state.diagnostics?.resources || []).find((item) => item.userName === userName);
+}
+
+function resourceMeter(label, used, total) {
+  const unlimited = total < 0;
+  const percent = unlimited || total === 0 ? 0 : Math.min(100, Math.round((used / total) * 100));
+  const totalText = unlimited ? "不限" : total;
+  return `
+    <div class="resource-meter">
+      <div class="resource-meter-label">
+        <span>${escapeHtml(label)}</span>
+        <span>${used}/${totalText}</span>
+      </div>
+      <div class="resource-bar"><span style="width: ${percent}%"></span></div>
+    </div>
+  `;
 }
 
 function renderTunnels() {

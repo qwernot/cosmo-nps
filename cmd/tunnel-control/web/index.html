@@ -84,6 +84,22 @@
             <strong id="metric-nps">0</strong>
           </div>
         </div>
+        <section class="panel diagnostics-panel">
+          <div class="panel-head">
+            <h2>自检与资源</h2>
+            <span class="panel-note" id="diagnostics-time">-</span>
+          </div>
+          <div class="diagnostics-grid">
+            <div>
+              <h3>监听自检</h3>
+              <div class="check-list" id="diagnostic-checks"></div>
+            </div>
+            <div>
+              <h3>资源使用</h3>
+              <div class="resource-list" id="diagnostic-resources"></div>
+            </div>
+          </div>
+        </section>
         <div class="split">
           <section class="panel">
             <div class="panel-head">
@@ -188,6 +204,7 @@
                     <th>端口池</th>
                     <th>域名池</th>
                     <th>最大隧道</th>
+                    <th>资源</th>
                     <th>凭据</th>
                     <th>状态</th>
                     <th></th>

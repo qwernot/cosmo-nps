@@ -17,6 +17,8 @@ Tunnel Control 是一个单容器穿透服务后台，把 `frp` 和 `nps` 的服
 - 引擎页面显示单容器内置 FRP/NPS 状态、端口和运行模式。
 - HTTP/HTTPS 隧道改为域名池模式，TCP/UDP/SOCKS5 继续使用端口池。
 - FRP 服务端增加域名池兜底校验，用户私自修改 `frpc.toml` 也不能越权绑定域名。
+- 概览页增加监听自检和用户资源使用情况，方便判断 FRP/NPS 是否真的在监听。
+- Docker 部署目录增加 `upgrade.sh`，升级前会备份 `data` 并做健康检查。
 - Docker 镜像已在 `192.168.6.64` 上重新部署测试，并推送到 Docker Hub。
 
 ## 镜像
@@ -113,6 +115,15 @@ NPS_WEB_PORT=0
 
 保存用户或隧道后，后台会自动同步到嵌入式 FRP/NPS 运行时，不需要再去其他后台操作。
 
+## 自检与资源
+
+概览页会显示两类运行信息：
+
+- 监听自检：管理员可看到后台、FRP、NPS 的关键 TCP 端口是否在容器内正常监听。
+- 资源使用：显示每个用户的 TCP、UDP、域名和隧道额度使用量。
+
+普通用户只能看到自己的资源使用情况；管理员可以看到全部用户和监听自检。
+
 ## 隧道类型
 
 TCP/UDP/SOCKS5 使用端口池：
@@ -194,6 +205,15 @@ docker compose logs -f tunnel-stack
 docker compose restart tunnel-stack
 docker compose down
 ```
+
+升级镜像并自动备份、重启、健康检查：
+
+```bash
+cd deploy/docker
+./upgrade.sh
+```
+
+脚本默认升级 `darkver8/tunnel-control:latest`，备份文件会写到 `deploy/docker/backups/`。
 
 健康检查：
 

@@ -9,9 +9,11 @@ import (
 	"flag"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +74,7 @@ func main() {
 		npsClientOut: *npsClientsPath,
 		configOut:    *configOutDir,
 		embedded:     *embeddedEngines,
+		listenAddr:   *addr,
 		runtime: core.RuntimeConfig{
 			ServerAddr:       *publicAddr,
 			FRPServerPort:    *frpServerPort,
@@ -130,6 +133,7 @@ func main() {
 	mux.HandleFunc("POST /api/tunnels", api.createTunnel)
 	mux.HandleFunc("PUT /api/tunnels/", api.updateTunnel)
 	mux.HandleFunc("DELETE /api/tunnels/", api.deleteTunnel)
+	mux.HandleFunc("GET /api/diagnostics", api.diagnostics)
 	mux.HandleFunc("GET /api/runtime", api.runtimeInfo)
 	mux.HandleFunc("GET /api/engines", api.engineStatuses)
 	mux.HandleFunc("POST /api/engines/", api.engineAction)
@@ -155,7 +159,35 @@ type apiServer struct {
 	npsClientOut string
 	configOut    string
 	embedded     bool
+	listenAddr   string
 	runtime      core.RuntimeConfig
+}
+
+type diagnosticCheck struct {
+	Name     string `json:"name"`
+	Engine   string `json:"engine,omitempty"`
+	Protocol string `json:"protocol"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Open     bool   `json:"open"`
+	Message  string `json:"message,omitempty"`
+}
+
+type resourceUsage struct {
+	UserName     string `json:"userName"`
+	PortTotal    int    `json:"portTotal"`
+	TCPUsed      int    `json:"tcpUsed"`
+	TCPFree      int    `json:"tcpFree"`
+	UDPUsed      int    `json:"udpUsed"`
+	UDPFree      int    `json:"udpFree"`
+	DomainTotal  int    `json:"domainTotal"`
+	DomainUsed   int    `json:"domainUsed"`
+	DomainFree   int    `json:"domainFree"`
+	TunnelUsed   int    `json:"tunnelUsed"`
+	TunnelLimit  int    `json:"tunnelLimit"`
+	TunnelFree   int    `json:"tunnelFree"`
+	HasWildcard  bool   `json:"hasWildcard"`
+	LimitMessage string `json:"limitMessage,omitempty"`
 }
 
 type sessionStore struct {
@@ -518,6 +550,178 @@ func (a *apiServer) runtimeInfo(w http.ResponseWriter, r *http.Request) {
 		"npsClientsPath": a.npsClientOut,
 		"configOutDir":   a.configOut,
 	})
+}
+
+func (a *apiServer) diagnostics(w http.ResponseWriter, r *http.Request) {
+	current := requestUser(r)
+	users := a.store.Users()
+	tunnels := a.store.ListTunnels("")
+	if !isAdmin(current) {
+		filteredUsers := make([]core.User, 0, 1)
+		for _, user := range users {
+			if user.Name == current.Name {
+				filteredUsers = append(filteredUsers, user)
+				break
+			}
+		}
+		users = filteredUsers
+		filteredTunnels := make([]core.Tunnel, 0)
+		for _, tunnel := range tunnels {
+			if tunnel.UserName == current.Name {
+				filteredTunnels = append(filteredTunnels, tunnel)
+			}
+		}
+		tunnels = filteredTunnels
+	}
+	resp := map[string]any{
+		"generatedAt": time.Now().UTC(),
+		"resources":   resourceUsageFor(users, tunnels),
+	}
+	if isAdmin(current) {
+		resp["checks"] = a.listenerChecks()
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (a *apiServer) listenerChecks() []diagnosticCheck {
+	checks := []diagnosticCheck{
+		listenerCheck("后台", "", "tcp", portFromListenAddr(a.listenAddr)),
+		listenerCheck("FRP 客户端接入", core.EngineFRP, "tcp", a.runtime.FRPServerPort),
+		listenerCheck("FRP HTTP", core.EngineFRP, "tcp", a.runtime.FRPHTTPPort),
+		listenerCheck("FRP HTTPS", core.EngineFRP, "tcp", a.runtime.FRPHTTPSPort),
+		listenerCheck("NPS bridge", core.EngineNPS, "tcp", a.runtime.NPSServerPort),
+		listenerCheck("NPS HTTP", core.EngineNPS, "tcp", a.runtime.NPSHTTPProxyPort),
+		listenerCheck("NPS HTTPS", core.EngineNPS, "tcp", a.runtime.NPSHTTPSPort),
+	}
+	out := checks[:0]
+	for _, check := range checks {
+		if check.Port > 0 {
+			out = append(out, check)
+		}
+	}
+	return out
+}
+
+func portFromListenAddr(addr string) int {
+	if addr == "" {
+		return 0
+	}
+	if port, err := strconv.Atoi(strings.TrimPrefix(addr, ":")); err == nil {
+		return port
+	}
+	_, portText, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return 0
+	}
+	return port
+}
+
+func listenerCheck(name, engineName, protocol string, port int) diagnosticCheck {
+	check := diagnosticCheck{
+		Name:     name,
+		Engine:   engineName,
+		Protocol: protocol,
+		Host:     "127.0.0.1",
+		Port:     port,
+	}
+	if port <= 0 {
+		check.Message = "未配置端口"
+		return check
+	}
+	conn, err := net.DialTimeout(protocol, net.JoinHostPort(check.Host, strconv.Itoa(port)), 800*time.Millisecond)
+	if err != nil {
+		check.Message = err.Error()
+		return check
+	}
+	check.Open = true
+	check.Message = "listening"
+	_ = conn.Close()
+	return check
+}
+
+func resourceUsageFor(users []core.User, tunnels []core.Tunnel) []resourceUsage {
+	out := make([]resourceUsage, 0, len(users))
+	for _, user := range users {
+		usage := resourceUsage{
+			UserName:    user.Name,
+			PortTotal:   totalPorts(user.PortPools),
+			DomainTotal: len(user.DomainPools),
+			TunnelLimit: user.MaxPorts,
+		}
+		tcpPorts := map[int]bool{}
+		udpPorts := map[int]bool{}
+		domains := map[string]bool{}
+		for _, pool := range user.DomainPools {
+			if pool == "*" || strings.HasPrefix(pool, "*.") {
+				usage.HasWildcard = true
+			}
+		}
+		for _, tunnel := range tunnels {
+			if tunnel.UserName != user.Name {
+				continue
+			}
+			usage.TunnelUsed++
+			if !tunnel.Enabled {
+				continue
+			}
+			switch tunnel.Mode {
+			case "udp":
+				if tunnel.RemotePort > 0 {
+					udpPorts[tunnel.RemotePort] = true
+				}
+			case "tcp", "socks5":
+				if tunnel.RemotePort > 0 {
+					tcpPorts[tunnel.RemotePort] = true
+				}
+			case "http", "https":
+				for _, domain := range tunnel.Domains {
+					domains[domain] = true
+				}
+			}
+		}
+		usage.TCPUsed = len(tcpPorts)
+		usage.UDPUsed = len(udpPorts)
+		usage.DomainUsed = len(domains)
+		usage.TCPFree = freeCount(usage.PortTotal, usage.TCPUsed)
+		usage.UDPFree = freeCount(usage.PortTotal, usage.UDPUsed)
+		if usage.HasWildcard {
+			usage.DomainFree = -1
+		} else {
+			usage.DomainFree = freeCount(usage.DomainTotal, usage.DomainUsed)
+		}
+		if usage.TunnelLimit > 0 {
+			usage.TunnelFree = freeCount(usage.TunnelLimit, usage.TunnelUsed)
+		} else {
+			usage.TunnelFree = -1
+			usage.LimitMessage = "不限"
+		}
+		out = append(out, usage)
+	}
+	return out
+}
+
+func totalPorts(ranges []core.PortRange) int {
+	total := 0
+	for _, r := range ranges {
+		if r.End >= r.Start {
+			total += r.End - r.Start + 1
+		}
+	}
+	return total
+}
+
+func freeCount(total, used int) int {
+	if total <= 0 {
+		return 0
+	}
+	if used >= total {
+		return 0
+	}
+	return total - used
 }
 
 func (a *apiServer) engineStatuses(w http.ResponseWriter, r *http.Request) {

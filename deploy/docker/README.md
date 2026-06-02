@@ -96,3 +96,24 @@ docker compose logs -f tunnel-stack
 docker compose restart tunnel-stack
 docker compose down
 ```
+
+## 升级
+
+`upgrade.sh` 会先备份 `data`，再拉取最新镜像、重启容器并检查后台健康状态：
+
+```bash
+cd deploy/docker
+./upgrade.sh
+```
+
+可通过环境变量覆盖默认镜像或健康检查地址：
+
+```bash
+IMAGE=darkver8/tunnel-control:server-http HEALTH_URL=http://127.0.0.1:8088/healthz ./upgrade.sh
+```
+
+备份文件默认保存到：
+
+```text
+deploy/docker/backups/
+```

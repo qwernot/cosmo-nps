@@ -306,6 +306,114 @@ h2 {
   margin-bottom: 18px;
 }
 
+.diagnostics-panel {
+  margin-bottom: 18px;
+}
+
+.panel-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+h3 {
+  margin: 0 0 10px;
+  color: var(--muted-strong);
+  font-size: 13px;
+}
+
+.check-list,
+.resource-list {
+  display: grid;
+  gap: 8px;
+}
+
+.check-item,
+.resource-card,
+.muted-box {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.check-item {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(120px, 1.2fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+}
+
+.check-item strong {
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.resource-card {
+  padding: 12px;
+}
+
+.resource-head,
+.resource-meter-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resource-head {
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.resource-head span,
+.resource-meter-label,
+.resource-mini,
+.muted-box {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.resource-meter {
+  display: grid;
+  gap: 6px;
+}
+
+.resource-meter + .resource-meter {
+  margin-top: 9px;
+}
+
+.resource-bar {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.resource-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.95), rgba(52, 211, 153, 0.9));
+}
+
+.resource-mini {
+  display: grid;
+  gap: 3px;
+  min-width: 120px;
+}
+
+.muted-box {
+  padding: 12px;
+}
+
 .metric,
 .panel,
 .login-panel {
@@ -570,7 +678,8 @@ pre {
   .metrics,
   .split,
   .workspace,
-  .config-layout {
+  .config-layout,
+  .diagnostics-grid {
     grid-template-columns: 1fr;
   }
 }
