@@ -5,6 +5,7 @@ const state = {
   engines: [],
   runtime: null,
   diagnostics: null,
+  clients: null,
   view: "dashboard",
 };
 
@@ -95,13 +96,14 @@ async function boot() {
 }
 
 async function refresh() {
-  const requests = [api("/api/runtime"), api("/api/users"), api("/api/tunnels"), api("/api/diagnostics")];
+  const requests = [api("/api/runtime"), api("/api/users"), api("/api/tunnels"), api("/api/diagnostics"), api("/api/clients")];
   if (isAdmin()) requests.push(api("/api/engines"));
-  const [runtime, users, tunnels, diagnostics, engines = []] = await Promise.all(requests);
+  const [runtime, users, tunnels, diagnostics, clients, engines = []] = await Promise.all(requests);
   state.runtime = runtime;
   state.users = users;
   state.tunnels = tunnels;
   state.diagnostics = diagnostics;
+  state.clients = clients;
   state.engines = engines;
   render();
 }
@@ -136,17 +138,19 @@ function renderDashboardTables() {
     <tr>
       <td>${escapeHtml(u.name)}</td>
       <td title="${escapeHtml(`端口: ${formatPools(u.portPools)} 域名: ${formatDomains(u.domainPools)}`)}">${escapeHtml(formatPools(u.portPools))}</td>
+      <td>${userOnlineBadges(u)}</td>
       <td>${statusBadge(u.enabled)}</td>
     </tr>
-  `).join("") || emptyRow(3);
+  `).join("") || emptyRow(4);
 
   $("#dashboard-tunnels").innerHTML = state.tunnels.slice(0, 6).map((t) => `
     <tr>
       <td title="${escapeHtml(t.id)}">${escapeHtml(t.id)}</td>
       <td>${engineBadge(t.engine)}</td>
       <td>${escapeHtml(tunnelEntry(t))}</td>
+      <td>${tunnelClientBadge(t)}</td>
     </tr>
-  `).join("") || emptyRow(3);
+  `).join("") || emptyRow(4);
 }
 
 function renderUsers() {
@@ -161,6 +165,7 @@ function renderUsers() {
         <span class="badge ${u.hasFrpToken ? "ok" : "warn"}">FRP</span>
         <span class="badge ${u.hasNpsVerifyKey ? "ok" : "warn"}">NPS</span>
       </td>
+      <td>${userOnlineBadges(u)}</td>
       <td>${statusBadge(u.enabled)}</td>
       <td>
         <div class="cell-actions">
@@ -169,7 +174,7 @@ function renderUsers() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(8);
+  `).join("") || emptyRow(9);
 }
 
 function renderDiagnostics() {
@@ -215,6 +220,41 @@ function resourceFor(userName) {
   return (state.diagnostics?.resources || []).find((item) => item.userName === userName);
 }
 
+function clients() {
+  return state.clients?.clients || [];
+}
+
+function clientFor(userName, engine) {
+  return clients().find((item) => item.userName === userName && item.engine === engine);
+}
+
+function userOnlineBadges(user) {
+  const items = [];
+  if (user.hasFrpToken) items.push(clientBadge(clientFor(user.name, "frp"), "FRP"));
+  if (user.hasNpsVerifyKey) items.push(clientBadge(clientFor(user.name, "nps"), "NPS"));
+  return items.length ? `<div class="client-stack">${items.join("")}</div>` : "-";
+}
+
+function tunnelClientBadge(tunnel) {
+  if (!tunnel.enabled) return '<span class="badge idle">停用</span>';
+  const status = clientFor(tunnel.userName, tunnel.engine);
+  return clientBadge(status, tunnel.engine.toUpperCase());
+}
+
+function clientBadge(status, label) {
+  if (!status) return `<span class="badge idle">${escapeHtml(label)} 未知</span>`;
+  const cls = status.state === "online" ? "ok" : status.state === "offline" ? "danger" : "idle";
+  const text = status.state === "online" ? "在线" : status.state === "offline" ? "离线" : "未知";
+  const detail = [
+    status.clientIp ? `IP: ${status.clientIp}` : "",
+    status.hostname ? `主机: ${status.hostname}` : "",
+    status.version ? `版本: ${status.version}` : "",
+    status.lastSeenAt ? `最近: ${new Date(status.lastSeenAt).toLocaleString()}` : "",
+    `隧道: ${status.tunnelOnline}/${status.tunnelTotal}`,
+  ].filter(Boolean).join("\n");
+  return `<span class="badge ${cls}" title="${escapeHtml(detail)}">${escapeHtml(label)} ${text}</span>`;
+}
+
 function resourceMeter(label, used, total) {
   const unlimited = total < 0;
   const percent = unlimited || total === 0 ? 0 : Math.min(100, Math.round((used / total) * 100));
@@ -239,6 +279,7 @@ function renderTunnels() {
       <td>${escapeHtml(t.mode)}</td>
       <td title="${escapeHtml(tunnelEntry(t))}">${escapeHtml(tunnelEntry(t))}</td>
       <td>${escapeHtml(`${t.localIp || "-"}:${t.localPort || "-"}`)}</td>
+      <td>${tunnelClientBadge(t)}</td>
       <td>${statusBadge(t.enabled)}</td>
       <td>
         <div class="cell-actions">
@@ -247,7 +288,7 @@ function renderTunnels() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(8);
+  `).join("") || emptyRow(9);
 }
 
 function renderEngines() {

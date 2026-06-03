@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	npsbridge "ehang.io/nps/bridge"
 	npscommon "ehang.io/nps/lib/common"
@@ -35,6 +36,20 @@ type FRPOptions struct {
 	UserFile  string
 	Admin     string
 	Password  string
+}
+
+type ClientStatus struct {
+	UserName       string
+	Engine         string
+	ClientID       string
+	ClientIP       string
+	Hostname       string
+	Version        string
+	Online         bool
+	ConnectedAt    time.Time
+	LastSeenAt     time.Time
+	DisconnectedAt time.Time
+	CurrentConns   int
 }
 
 func RunFRP(ctx context.Context, opt FRPOptions) error {
@@ -74,6 +89,32 @@ func RunFRP(ctx context.Context, opt FRPOptions) error {
 	}()
 	svc.Run(ctx)
 	return nil
+}
+
+func FRPClientStatuses() []ClientStatus {
+	frpMu.RLock()
+	svc := frpSvc
+	frpMu.RUnlock()
+	if svc == nil {
+		return nil
+	}
+	records := svc.ListClientInfos()
+	out := make([]ClientStatus, 0, len(records))
+	for _, record := range records {
+		out = append(out, ClientStatus{
+			UserName:       record.User,
+			Engine:         core.EngineFRP,
+			ClientID:       record.ClientID(),
+			ClientIP:       record.IP,
+			Hostname:       record.Hostname,
+			Version:        record.Version,
+			Online:         record.Online,
+			ConnectedAt:    record.FirstConnectedAt,
+			LastSeenAt:     record.LastConnectedAt,
+			DisconnectedAt: record.DisconnectedAt,
+		})
+	}
+	return out
 }
 
 func SyncFRPState(users []core.User) error {
@@ -156,6 +197,48 @@ func RunNPS(ctx context.Context, opt NPSOptions) error {
 	npsserver.StartNewServer(opt.BridgePort, cnf, "tcp", 60)
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+func NPSClientStatuses() []ClientStatus {
+	if npsfile.Db == nil {
+		return nil
+	}
+	db := npsfile.GetDb()
+	out := []ClientStatus{}
+	db.JsonDb.Clients.Range(func(_, value any) bool {
+		client, ok := value.(*npsfile.Client)
+		if !ok || client.NoDisplay {
+			return true
+		}
+		name := client.WebUserName
+		if name == "" {
+			name = client.Remark
+		}
+		status := ClientStatus{
+			UserName:     name,
+			Engine:       core.EngineNPS,
+			ClientID:     fmt.Sprintf("%d", client.Id),
+			ClientIP:     client.Addr,
+			Version:      client.Version,
+			Online:       client.IsConnect,
+			CurrentConns: int(client.NowConn),
+		}
+		if npsserver.Bridge != nil {
+			if bridgeClient, ok := npsserver.Bridge.Client.Load(client.Id); ok {
+				status.Online = true
+				status.LastSeenAt = time.Now().UTC()
+				status.Version = bridgeClient.(*npsbridge.Client).Version
+			}
+		}
+		if client.LastOnlineTime != "" {
+			if t, err := time.ParseInLocation("2006-01-02 15:04:05", client.LastOnlineTime, time.Local); err == nil {
+				status.LastSeenAt = t
+			}
+		}
+		out = append(out, status)
+		return true
+	})
+	return out
 }
 
 func SyncNPSState(users []core.User, tunnels []core.Tunnel) error {

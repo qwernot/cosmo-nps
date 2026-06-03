@@ -390,6 +390,13 @@ func (svr *Service) ListUserStoreUsers() ([]userstore.PublicUser, error) {
 	return svr.userStore.List(), nil
 }
 
+func (svr *Service) ListClientInfos() []registry.ClientInfo {
+	if svr.clientRegistry == nil {
+		return nil
+	}
+	return svr.clientRegistry.List()
+}
+
 func (svr *Service) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	svr.ctx = ctx

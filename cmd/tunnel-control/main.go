@@ -134,6 +134,7 @@ func main() {
 	mux.HandleFunc("PUT /api/tunnels/", api.updateTunnel)
 	mux.HandleFunc("DELETE /api/tunnels/", api.deleteTunnel)
 	mux.HandleFunc("GET /api/diagnostics", api.diagnostics)
+	mux.HandleFunc("GET /api/clients", api.listClients)
 	mux.HandleFunc("GET /api/runtime", api.runtimeInfo)
 	mux.HandleFunc("GET /api/engines", api.engineStatuses)
 	mux.HandleFunc("POST /api/engines/", api.engineAction)
@@ -188,6 +189,28 @@ type resourceUsage struct {
 	TunnelFree   int    `json:"tunnelFree"`
 	HasWildcard  bool   `json:"hasWildcard"`
 	LimitMessage string `json:"limitMessage,omitempty"`
+}
+
+type clientRuntimeStatus struct {
+	UserName       string `json:"userName"`
+	Engine         string `json:"engine"`
+	State          string `json:"state"`
+	Online         bool   `json:"online"`
+	ClientID       string `json:"clientId,omitempty"`
+	ClientIP       string `json:"clientIp,omitempty"`
+	Hostname       string `json:"hostname,omitempty"`
+	Version        string `json:"version,omitempty"`
+	ConnectedAt    string `json:"connectedAt,omitempty"`
+	LastSeenAt     string `json:"lastSeenAt,omitempty"`
+	DisconnectedAt string `json:"disconnectedAt,omitempty"`
+	CurrentConns   int    `json:"currentConns,omitempty"`
+	TunnelTotal    int    `json:"tunnelTotal"`
+	TunnelOnline   int    `json:"tunnelOnline"`
+}
+
+type clientTunnelCount struct {
+	total  int
+	online int
 }
 
 type sessionStore struct {
@@ -583,6 +606,41 @@ func (a *apiServer) diagnostics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (a *apiServer) listClients(w http.ResponseWriter, r *http.Request) {
+	current := requestUser(r)
+	users := a.store.Users()
+	tunnels := a.store.ListTunnels("")
+	if !isAdmin(current) {
+		users = filterUsersByName(users, current.Name)
+		tunnels = filterTunnelsByUser(tunnels, current.Name)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"generatedAt": time.Now().UTC(),
+		"clients":     clientStatusesFor(users, tunnels, a.embedded, runtimeClientStatuses()),
+	})
+}
+
+func filterUsersByName(users []core.User, name string) []core.User {
+	out := make([]core.User, 0, 1)
+	for _, user := range users {
+		if user.Name == name {
+			out = append(out, user)
+			break
+		}
+	}
+	return out
+}
+
+func filterTunnelsByUser(tunnels []core.Tunnel, name string) []core.Tunnel {
+	out := make([]core.Tunnel, 0)
+	for _, tunnel := range tunnels {
+		if tunnel.UserName == name {
+			out = append(out, tunnel)
+		}
+	}
+	return out
+}
+
 func (a *apiServer) listenerChecks() []diagnosticCheck {
 	checks := []diagnosticCheck{
 		listenerCheck("后台", "", "tcp", portFromListenAddr(a.listenAddr)),
@@ -702,6 +760,98 @@ func resourceUsageFor(users []core.User, tunnels []core.Tunnel) []resourceUsage 
 		out = append(out, usage)
 	}
 	return out
+}
+
+func runtimeClientStatuses() []integrated.ClientStatus {
+	statuses := integrated.FRPClientStatuses()
+	statuses = append(statuses, integrated.NPSClientStatuses()...)
+	return statuses
+}
+
+func clientStatusesFor(users []core.User, tunnels []core.Tunnel, embedded bool, live []integrated.ClientStatus) []clientRuntimeStatus {
+	liveByUserEngine := map[string]integrated.ClientStatus{}
+	for _, status := range live {
+		if status.UserName == "" || status.Engine == "" {
+			continue
+		}
+		key := statusKey(status.UserName, status.Engine)
+		if current, ok := liveByUserEngine[key]; !ok || betterClientStatus(status, current) {
+			liveByUserEngine[key] = status
+		}
+	}
+
+	tunnelCounts := map[string]clientTunnelCount{}
+	for _, tunnel := range tunnels {
+		if !tunnel.Enabled {
+			continue
+		}
+		key := statusKey(tunnel.UserName, tunnel.Engine)
+		count := tunnelCounts[key]
+		count.total++
+		tunnelCounts[key] = count
+	}
+
+	out := []clientRuntimeStatus{}
+	for _, user := range users {
+		if user.FRPToken != "" {
+			out = append(out, buildClientRuntimeStatus(user.Name, core.EngineFRP, embedded, liveByUserEngine[statusKey(user.Name, core.EngineFRP)], tunnelCounts[statusKey(user.Name, core.EngineFRP)]))
+		}
+		if user.NPSVerifyKey != "" {
+			out = append(out, buildClientRuntimeStatus(user.Name, core.EngineNPS, embedded, liveByUserEngine[statusKey(user.Name, core.EngineNPS)], tunnelCounts[statusKey(user.Name, core.EngineNPS)]))
+		}
+	}
+	return out
+}
+
+func buildClientRuntimeStatus(userName, engineName string, embedded bool, live integrated.ClientStatus, count clientTunnelCount) clientRuntimeStatus {
+	state := "unknown"
+	if embedded {
+		state = "offline"
+	}
+	status := clientRuntimeStatus{
+		UserName:     userName,
+		Engine:       engineName,
+		State:        state,
+		TunnelTotal:  count.total,
+		TunnelOnline: count.online,
+	}
+	if live.UserName == "" {
+		return status
+	}
+	status.Online = live.Online
+	if live.Online {
+		status.State = "online"
+		status.TunnelOnline = status.TunnelTotal
+	} else if embedded {
+		status.State = "offline"
+	}
+	status.ClientID = live.ClientID
+	status.ClientIP = live.ClientIP
+	status.Hostname = live.Hostname
+	status.Version = live.Version
+	status.ConnectedAt = statusTime(live.ConnectedAt)
+	status.LastSeenAt = statusTime(live.LastSeenAt)
+	status.DisconnectedAt = statusTime(live.DisconnectedAt)
+	status.CurrentConns = live.CurrentConns
+	return status
+}
+
+func betterClientStatus(candidate, current integrated.ClientStatus) bool {
+	if candidate.Online != current.Online {
+		return candidate.Online
+	}
+	return candidate.LastSeenAt.After(current.LastSeenAt)
+}
+
+func statusKey(userName, engineName string) string {
+	return userName + "\x00" + engineName
+}
+
+func statusTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func totalPorts(ranges []core.PortRange) int {

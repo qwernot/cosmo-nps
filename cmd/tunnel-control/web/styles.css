@@ -610,6 +610,22 @@ tr:hover td {
   color: #fde68a;
 }
 
+.badge.danger {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fecaca;
+}
+
+.badge.idle {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+}
+
+.client-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
 .badge.engine-frp {
   background: rgba(56, 189, 248, 0.15);
   color: #bae6fd;
