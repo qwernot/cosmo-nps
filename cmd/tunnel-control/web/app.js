@@ -98,19 +98,33 @@ async function boot() {
 }
 
 async function refresh() {
-  const requests = [api("/api/runtime"), api("/api/users"), api("/api/tunnels"), api("/api/diagnostics"), api("/api/clients")];
-  if (isAdmin()) {
-    requests.push(api("/api/engines"));
-    requests.push(loadLogs(false));
+  const requests = {
+    runtime: api("/api/runtime"),
+    users: api("/api/users"),
+    tunnels: api("/api/tunnels"),
+  };
+  if (state.view === "dashboard" || state.view === "users") {
+    requests.diagnostics = api("/api/diagnostics");
   }
-  const [runtime, users, tunnels, diagnostics, clients, engines = [], logs = null] = await Promise.all(requests);
-  state.runtime = runtime;
-  state.users = users;
-  state.tunnels = tunnels;
-  state.diagnostics = diagnostics;
-  state.clients = clients;
-  state.engines = engines;
-  state.logs = logs;
+  if (state.view === "dashboard" || state.view === "users" || state.view === "tunnels") {
+    requests.clients = api("/api/clients");
+  }
+  if (isAdmin() && state.view === "engines") {
+    requests.engines = api("/api/engines");
+  }
+  if (isAdmin() && state.view === "logs") {
+    requests.logs = loadLogs(false);
+  }
+  const entries = await Promise.all(Object.entries(requests).map(async ([key, request]) => [key, await request]));
+  for (const [key, value] of entries) {
+    if (key === "runtime") state.runtime = value;
+    if (key === "users") state.users = value;
+    if (key === "tunnels") state.tunnels = value;
+    if (key === "diagnostics") state.diagnostics = value;
+    if (key === "clients") state.clients = value;
+    if (key === "engines") state.engines = value;
+    if (key === "logs") state.logs = value;
+  }
   render();
 }
 
@@ -123,14 +137,21 @@ function render() {
     switchView("dashboard");
   }
   renderUserOptions();
-  renderMetrics();
-  renderUsers();
-  renderTunnels();
-  renderDashboardTables();
-  renderDiagnostics();
-  renderEngines();
-  renderLogs();
-  updateTunnelModeFields();
+  if (state.view === "dashboard") {
+    renderMetrics();
+    renderDashboardTables();
+    renderDiagnostics();
+  }
+  if (state.view === "users") {
+    renderUsers();
+    renderDiagnostics();
+  }
+  if (state.view === "tunnels") {
+    renderTunnels();
+    updateTunnelModeFields();
+  }
+  if (state.view === "engines") renderEngines();
+  if (state.view === "logs") renderLogs();
 }
 
 function renderMetrics() {
@@ -354,7 +375,7 @@ function renderLogs() {
 
 async function loadLogs(updateState = true) {
   const q = encodeURIComponent($("#logs-query")?.value || "");
-  const logs = await api(`/api/logs?limit=500${q ? `&q=${q}` : ""}`);
+  const logs = await api(`/api/logs?limit=200${q ? `&q=${q}` : ""}`);
   if (updateState) {
     state.logs = logs;
     renderLogs();
@@ -396,6 +417,8 @@ function switchView(view) {
   $$(".view").forEach((el) => el.classList.toggle("active", el.id === `view-${view}`));
   $("#page-title").textContent = titles[view][0];
   $("#page-subtitle").textContent = titles[view][1];
+  render();
+  refresh().catch((err) => toast(err.message));
 }
 
 function formData(form) {

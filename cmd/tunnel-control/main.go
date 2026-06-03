@@ -663,6 +663,15 @@ func (a *apiServer) listenerChecks() []diagnosticCheck {
 			out = append(out, check)
 		}
 	}
+	var wg sync.WaitGroup
+	for i := range out {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			out[i] = probeListener(out[i])
+		}(i)
+	}
+	wg.Wait()
 	return out
 }
 
@@ -685,18 +694,21 @@ func portFromListenAddr(addr string) int {
 }
 
 func listenerCheck(name, engineName, protocol string, port int) diagnosticCheck {
-	check := diagnosticCheck{
+	return diagnosticCheck{
 		Name:     name,
 		Engine:   engineName,
 		Protocol: protocol,
 		Host:     "127.0.0.1",
 		Port:     port,
 	}
-	if port <= 0 {
+}
+
+func probeListener(check diagnosticCheck) diagnosticCheck {
+	if check.Port <= 0 {
 		check.Message = "未配置端口"
 		return check
 	}
-	conn, err := net.DialTimeout(protocol, net.JoinHostPort(check.Host, strconv.Itoa(port)), 800*time.Millisecond)
+	conn, err := net.DialTimeout(check.Protocol, net.JoinHostPort(check.Host, strconv.Itoa(check.Port)), 250*time.Millisecond)
 	if err != nil {
 		check.Message = err.Error()
 		return check
