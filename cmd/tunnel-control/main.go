@@ -31,6 +31,8 @@ type contextKey string
 const userContextKey contextKey = "user"
 
 func main() {
+	logs := newLogBuffer(3000)
+	setupLogging(logs)
 	var (
 		addr             = flag.String("addr", ":8088", "HTTP listen address")
 		dbPath           = flag.String("db", ".data/tunnel-control.json", "JSON database path")
@@ -75,6 +77,7 @@ func main() {
 		configOut:    *configOutDir,
 		embedded:     *embeddedEngines,
 		listenAddr:   *addr,
+		logs:         logs,
 		runtime: core.RuntimeConfig{
 			ServerAddr:       *publicAddr,
 			FRPServerPort:    *frpServerPort,
@@ -137,6 +140,8 @@ func main() {
 	mux.HandleFunc("GET /api/clients", api.listClients)
 	mux.HandleFunc("GET /api/runtime", api.runtimeInfo)
 	mux.HandleFunc("GET /api/engines", api.engineStatuses)
+	mux.HandleFunc("GET /api/logs", api.listLogs)
+	mux.HandleFunc("DELETE /api/logs", api.clearLogs)
 	mux.HandleFunc("POST /api/engines/", api.engineAction)
 	mux.HandleFunc("POST /api/sync/frp-users", api.syncFRPUsers)
 	mux.HandleFunc("POST /api/export/configs", api.exportConfigs)
@@ -161,6 +166,7 @@ type apiServer struct {
 	configOut    string
 	embedded     bool
 	listenAddr   string
+	logs         *logBuffer
 	runtime      core.RuntimeConfig
 }
 
@@ -879,6 +885,35 @@ func (a *apiServer) engineStatuses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a.engines.Statuses())
+}
+
+func (a *apiServer) listLogs(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	limit := 300
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			writeErrorText(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		limit = parsed
+	}
+	query := r.URL.Query().Get("q")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"generatedAt": time.Now().UTC(),
+		"entries":     a.logs.list(limit, query),
+	})
+}
+
+func (a *apiServer) clearLogs(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	a.logs.clear()
+	log.Printf("logs cleared by %s", requestUser(r).Name)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
 }
 
 func (a *apiServer) engineAction(w http.ResponseWriter, r *http.Request) {

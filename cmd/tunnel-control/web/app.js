@@ -6,6 +6,7 @@ const state = {
   runtime: null,
   diagnostics: null,
   clients: null,
+  logs: null,
   view: "dashboard",
 };
 
@@ -15,6 +16,7 @@ const titles = {
   tunnels: ["隧道", "创建 FRP 或 NPS 隧道；TCP/UDP/SOCKS5 用端口，HTTP/HTTPS 用域名。"],
   configs: ["配置", "查看用户自己的 frpc.toml 和 npc 启动命令。"],
   engines: ["引擎", "查看单容器内置 FRP/NPS 的运行状态和对外端口。"],
+  logs: ["日志", "查看后台、FRP、NPS 最近运行日志。"],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -97,14 +99,18 @@ async function boot() {
 
 async function refresh() {
   const requests = [api("/api/runtime"), api("/api/users"), api("/api/tunnels"), api("/api/diagnostics"), api("/api/clients")];
-  if (isAdmin()) requests.push(api("/api/engines"));
-  const [runtime, users, tunnels, diagnostics, clients, engines = []] = await Promise.all(requests);
+  if (isAdmin()) {
+    requests.push(api("/api/engines"));
+    requests.push(loadLogs(false));
+  }
+  const [runtime, users, tunnels, diagnostics, clients, engines = [], logs = null] = await Promise.all(requests);
   state.runtime = runtime;
   state.users = users;
   state.tunnels = tunnels;
   state.diagnostics = diagnostics;
   state.clients = clients;
   state.engines = engines;
+  state.logs = logs;
   render();
 }
 
@@ -113,7 +119,7 @@ function render() {
   const client = state.runtime?.client || {};
   $("#runtime-server").textContent = `${client.serverAddr || "-"}:${client.frpServerPort || "-"}`;
   $$(".admin-only").forEach((el) => el.classList.toggle("hidden", !isAdmin()));
-  if (!isAdmin() && (state.view === "users" || state.view === "engines")) {
+  if (!isAdmin() && (state.view === "users" || state.view === "engines" || state.view === "logs")) {
     switchView("dashboard");
   }
   renderUserOptions();
@@ -123,6 +129,7 @@ function render() {
   renderDashboardTables();
   renderDiagnostics();
   renderEngines();
+  renderLogs();
   updateTunnelModeFields();
 }
 
@@ -328,6 +335,40 @@ function renderEngines() {
   ].join("\n");
 }
 
+function renderLogs() {
+  if (!isAdmin()) return;
+  const logs = state.logs || {};
+  const generatedAt = logs.generatedAt ? new Date(logs.generatedAt).toLocaleString() : "-";
+  $("#logs-time").textContent = `更新 ${generatedAt}`;
+  const entries = logs.entries || [];
+  $("#logs-list").innerHTML = entries.length ? entries.map((entry) => `
+    <div class="log-entry">
+      <span class="log-time">${escapeHtml(new Date(entry.time).toLocaleString())}</span>
+      <span class="badge idle">${escapeHtml(entry.stream || "process")}</span>
+      <span class="log-message">${escapeHtml(entry.message)}</span>
+    </div>
+  `).join("") : '<div class="muted-box">暂无日志</div>';
+  const box = $("#logs-list");
+  box.scrollTop = box.scrollHeight;
+}
+
+async function loadLogs(updateState = true) {
+  const q = encodeURIComponent($("#logs-query")?.value || "");
+  const logs = await api(`/api/logs?limit=500${q ? `&q=${q}` : ""}`);
+  if (updateState) {
+    state.logs = logs;
+    renderLogs();
+  }
+  return logs;
+}
+
+async function clearLogs() {
+  if (!confirm("确定清空当前日志缓存？")) return;
+  await api("/api/logs", { method: "DELETE" });
+  await loadLogs(true);
+  toast("日志已清空");
+}
+
 function renderUserOptions() {
   const options = state.users.map((u) => `<option value="${escapeHtml(u.name)}">${escapeHtml(u.name)}</option>`).join("");
   const tunnelUser = $('select[name="userName"]');
@@ -349,7 +390,7 @@ function emptyRow(cols) {
 }
 
 function switchView(view) {
-  if ((view === "users" || view === "engines") && !isAdmin()) return;
+  if ((view === "users" || view === "engines" || view === "logs") && !isAdmin()) return;
   state.view = view;
   $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
   $$(".view").forEach((el) => el.classList.toggle("active", el.id === `view-${view}`));
@@ -580,6 +621,11 @@ $("#load-frpc").addEventListener("click", () => loadConfig("frp").catch((err) =>
 $("#load-npc").addEventListener("click", () => loadConfig("nps").catch((err) => toast(err.message)));
 $("#copy-config").addEventListener("click", () => copyConfig().catch((err) => toast(err.message)));
 $("#export-configs").addEventListener("click", () => exportConfigs().catch((err) => toast(err.message)));
+$("#refresh-logs").addEventListener("click", () => loadLogs(true).then(() => toast("已刷新")).catch((err) => toast(err.message)));
+$("#clear-logs").addEventListener("click", () => clearLogs().catch((err) => toast(err.message)));
+$("#logs-query").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") loadLogs(true).catch((err) => toast(err.message));
+});
 
 boot();
 updateTunnelModeFields();

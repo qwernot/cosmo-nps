@@ -626,6 +626,48 @@ tr:hover td {
   gap: 5px;
 }
 
+.logs-panel {
+  min-height: calc(100vh - 140px);
+}
+
+.logs-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  gap: 10px;
+  padding: 0 16px 14px;
+}
+
+.log-list {
+  height: calc(100vh - 260px);
+  min-height: 420px;
+  overflow: auto;
+  border-top: 1px solid var(--line-soft);
+  background: rgba(8, 13, 26, 0.46);
+}
+
+.log-entry {
+  display: grid;
+  grid-template-columns: 158px auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.log-time {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.log-message {
+  min-width: 0;
+  color: #dbeafe;
+  overflow-wrap: anywhere;
+}
+
 .badge.engine-frp {
   background: rgba(56, 189, 248, 0.15);
   color: #bae6fd;
@@ -684,7 +726,7 @@ pre {
   }
 
   .nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .runtime {
@@ -695,7 +737,9 @@ pre {
   .split,
   .workspace,
   .config-layout,
-  .diagnostics-grid {
+  .diagnostics-grid,
+  .logs-toolbar,
+  .log-entry {
     grid-template-columns: 1fr;
   }
 }

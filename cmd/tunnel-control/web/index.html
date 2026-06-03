@@ -43,6 +43,7 @@
         <button class="nav-item" data-view="tunnels">隧道</button>
         <button class="nav-item" data-view="configs">配置</button>
         <button class="nav-item admin-only" data-view="engines">引擎</button>
+        <button class="nav-item admin-only" data-view="logs">日志</button>
       </nav>
       <div class="runtime">
         <span>服务地址</span>
@@ -361,6 +362,21 @@
             <pre id="engine-help"></pre>
           </section>
         </div>
+      </section>
+
+      <section class="view" id="view-logs">
+        <section class="panel logs-panel">
+          <div class="panel-head">
+            <h2>运行日志</h2>
+            <span class="panel-note" id="logs-time">-</span>
+          </div>
+          <div class="logs-toolbar">
+            <input id="logs-query" placeholder="搜索日志" />
+            <button class="button small secondary" id="refresh-logs">刷新</button>
+            <button class="button small danger" id="clear-logs">清空</button>
+          </div>
+          <div class="log-list" id="logs-list"></div>
+        </section>
       </section>
     </main>
 
