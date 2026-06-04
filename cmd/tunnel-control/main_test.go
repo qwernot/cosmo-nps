@@ -89,3 +89,47 @@ func TestClientStatusesFor(t *testing.T) {
 		t.Fatalf("external mode should report unknown states: %+v", unknown)
 	}
 }
+
+func TestSummarizeTunnelAvailability(t *testing.T) {
+	tests := []struct {
+		name        string
+		clientState string
+		entry       tunnelAvailabilityProbe
+		wantState   string
+	}{
+		{name: "online and entry ok", clientState: "online", entry: tunnelAvailabilityProbe{State: "ok"}, wantState: "ok"},
+		{name: "entry down wins", clientState: "online", entry: tunnelAvailabilityProbe{State: "down"}, wantState: "down"},
+		{name: "client offline", clientState: "offline", entry: tunnelAvailabilityProbe{State: "ok"}, wantState: "down"},
+		{name: "udp unknown with client online", clientState: "online", entry: tunnelAvailabilityProbe{State: "unknown"}, wantState: "warning"},
+		{name: "external client unknown", clientState: "unknown", entry: tunnelAvailabilityProbe{State: "ok"}, wantState: "warning"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, _ := summarizeTunnelAvailability(tt.clientState, tt.entry)
+			if got != tt.wantState {
+				t.Fatalf("summarizeTunnelAvailability() state = %q, want %q", got, tt.wantState)
+			}
+		})
+	}
+}
+
+func TestHTTPEntryPort(t *testing.T) {
+	runtime := core.RuntimeConfig{
+		FRPHTTPPort:      9081,
+		FRPHTTPSPort:     9444,
+		NPSHTTPProxyPort: 9080,
+		NPSHTTPSPort:     9443,
+	}
+	if got := httpEntryPort(core.EngineFRP, "http", runtime); got != 9081 {
+		t.Fatalf("frp http port = %d", got)
+	}
+	if got := httpEntryPort(core.EngineFRP, "https", runtime); got != 9444 {
+		t.Fatalf("frp https port = %d", got)
+	}
+	if got := httpEntryPort(core.EngineNPS, "http", runtime); got != 9080 {
+		t.Fatalf("nps http port = %d", got)
+	}
+	if got := httpEntryPort(core.EngineNPS, "https", runtime); got != 9443 {
+		t.Fatalf("nps https port = %d", got)
+	}
+}

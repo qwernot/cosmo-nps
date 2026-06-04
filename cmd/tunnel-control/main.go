@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -138,6 +139,7 @@ func main() {
 	mux.HandleFunc("DELETE /api/tunnels/", api.deleteTunnel)
 	mux.HandleFunc("GET /api/diagnostics", api.diagnostics)
 	mux.HandleFunc("GET /api/clients", api.listClients)
+	mux.HandleFunc("GET /api/availability", api.listAvailability)
 	mux.HandleFunc("GET /api/runtime", api.runtimeInfo)
 	mux.HandleFunc("GET /api/engines", api.engineStatuses)
 	mux.HandleFunc("GET /api/logs", api.listLogs)
@@ -212,6 +214,26 @@ type clientRuntimeStatus struct {
 	CurrentConns   int    `json:"currentConns,omitempty"`
 	TunnelTotal    int    `json:"tunnelTotal"`
 	TunnelOnline   int    `json:"tunnelOnline"`
+}
+
+type tunnelAvailability struct {
+	TunnelID    string                  `json:"tunnelId"`
+	UserName    string                  `json:"userName"`
+	Engine      string                  `json:"engine"`
+	Mode        string                  `json:"mode"`
+	State       string                  `json:"state"`
+	Message     string                  `json:"message"`
+	ClientState string                  `json:"clientState"`
+	Entry       tunnelAvailabilityProbe `json:"entry"`
+	CheckedAt   string                  `json:"checkedAt"`
+}
+
+type tunnelAvailabilityProbe struct {
+	State      string `json:"state"`
+	Target     string `json:"target"`
+	Message    string `json:"message"`
+	StatusCode int    `json:"statusCode,omitempty"`
+	LatencyMS  int64  `json:"latencyMs,omitempty"`
 }
 
 type clientTunnelCount struct {
@@ -626,6 +648,21 @@ func (a *apiServer) listClients(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *apiServer) listAvailability(w http.ResponseWriter, r *http.Request) {
+	current := requestUser(r)
+	users := a.store.Users()
+	tunnels := a.store.ListTunnels("")
+	if !isAdmin(current) {
+		users = filterUsersByName(users, current.Name)
+		tunnels = filterTunnelsByUser(tunnels, current.Name)
+	}
+	clients := clientStatusesFor(users, tunnels, a.embedded, runtimeClientStatuses())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"generatedAt":  time.Now().UTC(),
+		"availability": availabilityFor(tunnels, clients, a.runtime),
+	})
+}
+
 func filterUsersByName(users []core.User, name string) []core.User {
 	out := make([]core.User, 0, 1)
 	for _, user := range users {
@@ -870,6 +907,169 @@ func statusTime(t time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
+}
+
+func availabilityFor(tunnels []core.Tunnel, clients []clientRuntimeStatus, runtime core.RuntimeConfig) []tunnelAvailability {
+	clientByTunnelKey := map[string]clientRuntimeStatus{}
+	for _, client := range clients {
+		clientByTunnelKey[statusKey(client.UserName, client.Engine)] = client
+	}
+	out := make([]tunnelAvailability, len(tunnels))
+	var wg sync.WaitGroup
+	for i, tunnel := range tunnels {
+		i, tunnel := i, tunnel
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client := clientByTunnelKey[statusKey(tunnel.UserName, tunnel.Engine)]
+			out[i] = checkTunnelAvailability(tunnel, client, runtime)
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
+func checkTunnelAvailability(tunnel core.Tunnel, client clientRuntimeStatus, runtime core.RuntimeConfig) tunnelAvailability {
+	checkedAt := time.Now().UTC().Format(time.RFC3339)
+	clientState := client.State
+	if clientState == "" {
+		clientState = "unknown"
+	}
+	result := tunnelAvailability{
+		TunnelID:    tunnel.ID,
+		UserName:    tunnel.UserName,
+		Engine:      tunnel.Engine,
+		Mode:        tunnel.Mode,
+		ClientState: clientState,
+		CheckedAt:   checkedAt,
+	}
+	if !tunnel.Enabled {
+		result.State = "disabled"
+		result.Message = "隧道已停用"
+		result.Entry = tunnelAvailabilityProbe{State: "disabled", Message: "未检测"}
+		return result
+	}
+	result.Entry = probeTunnelEntry(tunnel, runtime)
+	result.State, result.Message = summarizeTunnelAvailability(clientState, result.Entry)
+	return result
+}
+
+func summarizeTunnelAvailability(clientState string, entry tunnelAvailabilityProbe) (string, string) {
+	if entry.State == "down" {
+		return "down", "服务端入口异常"
+	}
+	if clientState == "offline" {
+		return "down", "客户端离线"
+	}
+	if entry.State == "warning" {
+		return "warning", entry.Message
+	}
+	if clientState == "online" && entry.State == "ok" {
+		return "ok", "客户端在线，入口可访问"
+	}
+	if clientState == "online" && entry.State == "unknown" {
+		return "warning", entry.Message
+	}
+	if clientState == "unknown" && entry.State == "ok" {
+		return "warning", "入口可访问，客户端状态未知"
+	}
+	if clientState == "unknown" {
+		return "unknown", "客户端状态未知"
+	}
+	return "warning", "可用性需要关注"
+}
+
+func probeTunnelEntry(tunnel core.Tunnel, runtime core.RuntimeConfig) tunnelAvailabilityProbe {
+	switch tunnel.Mode {
+	case "tcp", "socks5":
+		return probeTCPEntry(tunnel.RemotePort)
+	case "udp":
+		return tunnelAvailabilityProbe{
+			State:   "unknown",
+			Target:  net.JoinHostPort("127.0.0.1", strconv.Itoa(tunnel.RemotePort)) + "/udp",
+			Message: "UDP 入口无法可靠主动探测，请结合客户端在线和业务流量确认",
+		}
+	case "http", "https":
+		return probeHTTPEntry(tunnel, runtime)
+	default:
+		return tunnelAvailabilityProbe{State: "unknown", Message: "未知隧道类型"}
+	}
+}
+
+func probeTCPEntry(port int) tunnelAvailabilityProbe {
+	target := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if port <= 0 {
+		return tunnelAvailabilityProbe{State: "down", Target: target, Message: "远程端口未配置"}
+	}
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", target, 350*time.Millisecond)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		return tunnelAvailabilityProbe{State: "down", Target: target, Message: err.Error(), LatencyMS: latency}
+	}
+	_ = conn.Close()
+	return tunnelAvailabilityProbe{State: "ok", Target: target, Message: "TCP 入口已监听", LatencyMS: latency}
+}
+
+func probeHTTPEntry(tunnel core.Tunnel, runtime core.RuntimeConfig) tunnelAvailabilityProbe {
+	domain := ""
+	if len(tunnel.Domains) > 0 {
+		domain = tunnel.Domains[0]
+	}
+	port := httpEntryPort(tunnel.Engine, tunnel.Mode, runtime)
+	target := tunnel.Mode + "://" + domain
+	if port > 0 {
+		target += ":" + strconv.Itoa(port)
+	}
+	if domain == "" {
+		return tunnelAvailabilityProbe{State: "down", Target: target, Message: "域名未配置"}
+	}
+	if port <= 0 {
+		return tunnelAvailabilityProbe{State: "down", Target: target, Message: "HTTP/HTTPS 入口端口未配置"}
+	}
+	scheme := tunnel.Mode
+	url := scheme + "://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/"
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return tunnelAvailabilityProbe{State: "down", Target: target, Message: err.Error()}
+	}
+	req.Host = domain
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: 350 * time.Millisecond,
+		}).DialContext,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Timeout: 800 * time.Millisecond, Transport: transport}
+	start := time.Now()
+	resp, err := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		return tunnelAvailabilityProbe{State: "down", Target: target, Message: err.Error(), LatencyMS: latency}
+	}
+	defer resp.Body.Close()
+	state := "ok"
+	message := "HTTP 入口已响应"
+	if resp.StatusCode >= 500 {
+		state = "warning"
+		message = "入口已响应，但上游返回 " + strconv.Itoa(resp.StatusCode)
+	}
+	return tunnelAvailabilityProbe{State: state, Target: target, Message: message, StatusCode: resp.StatusCode, LatencyMS: latency}
+}
+
+func httpEntryPort(engineName, mode string, runtime core.RuntimeConfig) int {
+	switch {
+	case engineName == core.EngineFRP && mode == "http":
+		return runtime.FRPHTTPPort
+	case engineName == core.EngineFRP && mode == "https":
+		return runtime.FRPHTTPSPort
+	case engineName == core.EngineNPS && mode == "http":
+		return runtime.NPSHTTPProxyPort
+	case engineName == core.EngineNPS && mode == "https":
+		return runtime.NPSHTTPSPort
+	default:
+		return 0
+	}
 }
 
 func totalPorts(ranges []core.PortRange) int {

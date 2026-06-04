@@ -6,6 +6,7 @@ const state = {
   runtime: null,
   diagnostics: null,
   clients: null,
+  availability: null,
   logs: null,
   view: "dashboard",
 };
@@ -109,6 +110,9 @@ async function refresh() {
   if (state.view === "dashboard" || state.view === "users" || state.view === "tunnels") {
     requests.clients = api("/api/clients");
   }
+  if (state.view === "dashboard" || state.view === "tunnels") {
+    requests.availability = api("/api/availability");
+  }
   if (isAdmin() && state.view === "engines") {
     requests.engines = api("/api/engines");
   }
@@ -122,6 +126,7 @@ async function refresh() {
     if (key === "tunnels") state.tunnels = value;
     if (key === "diagnostics") state.diagnostics = value;
     if (key === "clients") state.clients = value;
+    if (key === "availability") state.availability = value;
     if (key === "engines") state.engines = value;
     if (key === "logs") state.logs = value;
   }
@@ -176,7 +181,7 @@ function renderDashboardTables() {
       <td title="${escapeHtml(t.id)}">${escapeHtml(t.id)}</td>
       <td>${engineBadge(t.engine)}</td>
       <td>${escapeHtml(tunnelEntry(t))}</td>
-      <td>${tunnelClientBadge(t)}</td>
+      <td>${tunnelAvailabilityBadge(t)}</td>
     </tr>
   `).join("") || emptyRow(4);
 }
@@ -256,6 +261,14 @@ function clientFor(userName, engine) {
   return clients().find((item) => item.userName === userName && item.engine === engine);
 }
 
+function availabilities() {
+  return state.availability?.availability || [];
+}
+
+function availabilityForTunnel(id) {
+  return availabilities().find((item) => item.tunnelId === id);
+}
+
 function userOnlineBadges(user) {
   const items = [];
   if (user.hasFrpToken) items.push(clientBadge(clientFor(user.name, "frp"), "FRP"));
@@ -267,6 +280,37 @@ function tunnelClientBadge(tunnel) {
   if (!tunnel.enabled) return '<span class="badge idle">停用</span>';
   const status = clientFor(tunnel.userName, tunnel.engine);
   return clientBadge(status, tunnel.engine.toUpperCase());
+}
+
+function tunnelAvailabilityBadge(tunnel) {
+  if (!tunnel.enabled) return '<span class="badge idle">停用</span>';
+  const availability = availabilityForTunnel(tunnel.id);
+  if (!availability) return tunnelClientBadge(tunnel);
+  const labels = {
+    ok: "可用",
+    warning: "注意",
+    down: "异常",
+    unknown: "未知",
+    disabled: "停用",
+  };
+  const classes = {
+    ok: "ok",
+    warning: "warn",
+    down: "danger",
+    unknown: "idle",
+    disabled: "idle",
+  };
+  const entry = availability.entry || {};
+  const detail = [
+    availability.message || "",
+    availability.clientState ? `客户端: ${availability.clientState}` : "",
+    entry.target ? `入口: ${entry.target}` : "",
+    entry.message ? `检测: ${entry.message}` : "",
+    entry.statusCode ? `HTTP: ${entry.statusCode}` : "",
+    Number.isFinite(entry.latencyMs) && entry.latencyMs > 0 ? `耗时: ${entry.latencyMs}ms` : "",
+    availability.checkedAt ? `时间: ${new Date(availability.checkedAt).toLocaleString()}` : "",
+  ].filter(Boolean).join("\n");
+  return `<span class="badge ${classes[availability.state] || "idle"}" title="${escapeHtml(detail)}">${labels[availability.state] || "未知"}</span>`;
 }
 
 function clientBadge(status, label) {
@@ -307,7 +351,7 @@ function renderTunnels() {
       <td>${escapeHtml(t.mode)}</td>
       <td title="${escapeHtml(tunnelEntry(t))}">${escapeHtml(tunnelEntry(t))}</td>
       <td>${escapeHtml(`${t.localIp || "-"}:${t.localPort || "-"}`)}</td>
-      <td>${tunnelClientBadge(t)}</td>
+      <td>${tunnelAvailabilityBadge(t)}</td>
       <td>${statusBadge(t.enabled)}</td>
       <td>
         <div class="cell-actions">
