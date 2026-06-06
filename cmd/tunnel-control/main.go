@@ -1677,7 +1677,7 @@ func renderTunnelClientHelp(userName, controlURL string) string {
 
 services:
   tunnel-client:
-    image: darkver8/tunnel-port:latest
+    image: darkver8/tunnel-client:latest
     container_name: tunnel-client
     restart: unless-stopped
     network_mode: host
