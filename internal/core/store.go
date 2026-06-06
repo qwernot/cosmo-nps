@@ -27,10 +27,14 @@ func NewStore(path string) (*Store, error) {
 		path: path,
 		db: Database{
 			Users:   map[string]*User{},
+			Nodes:   map[string]*Node{},
 			Tunnels: map[string]*Tunnel{},
 		},
 	}
 	if err := s.load(); err != nil {
+		return nil, err
+	}
+	if err := s.migrateDefaultNode(); err != nil {
 		return nil, err
 	}
 	if err := s.migrateLegacyPasswords(); err != nil {
@@ -148,6 +152,118 @@ func (s *Store) Users() []User {
 	return users
 }
 
+func (s *Store) ListNodes() []Node {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	nodes := make([]Node, 0, len(s.db.Nodes))
+	for _, node := range s.db.Nodes {
+		nodes = append(nodes, cloneNode(node))
+	}
+	slices.SortFunc(nodes, func(a, b Node) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return nodes
+}
+
+func (s *Store) GetNode(id string) (Node, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	node, ok := s.db.Nodes[normalizeID(id)]
+	if !ok {
+		return Node{}, false
+	}
+	return cloneNode(node), true
+}
+
+func (s *Store) UpsertNode(in Node) (Node, error) {
+	in.ID = normalizeID(in.ID)
+	if in.ID == "" {
+		return Node{}, fmt.Errorf("node id is required")
+	}
+	if in.Name == "" {
+		in.Name = in.ID
+	}
+	domains, err := NormalizeDomains(in.DomainPools)
+	if err != nil {
+		return Node{}, err
+	}
+	in.DomainPools = domains
+	now := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	node, ok := s.db.Nodes[in.ID]
+	if !ok {
+		node = &Node{ID: in.ID, CreatedAt: now}
+		s.db.Nodes[in.ID] = node
+	}
+	node.Name = in.Name
+	if in.Token != "" {
+		node.Token = in.Token
+	} else if node.Token == "" {
+		node.Token = randomSecret()
+	}
+	node.PublicAddr = strings.TrimSpace(in.PublicAddr)
+	node.Enabled = in.Enabled
+	node.FRPEnabled = false
+	node.NPSEnabled = true
+	node.PortPools = append([]PortRange(nil), in.PortPools...)
+	node.DomainPools = append([]string(nil), in.DomainPools...)
+	node.Runtime = in.Runtime
+	node.UpdatedAt = now
+	if err := s.saveLocked(); err != nil {
+		return Node{}, err
+	}
+	return cloneNode(node), nil
+}
+
+func (s *Store) DeleteNode(id string) error {
+	id = normalizeID(id)
+	if id == "" {
+		return fmt.Errorf("node id is required")
+	}
+	if id == DefaultNodeID {
+		return fmt.Errorf("cannot delete default node")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.db.Nodes[id]; !ok {
+		return nil
+	}
+	for _, tunnel := range s.db.Tunnels {
+		if tunnelNodeID(tunnel) == id {
+			return fmt.Errorf("node %q is used by tunnel %s", id, tunnel.ID)
+		}
+	}
+	delete(s.db.Nodes, id)
+	return s.saveLocked()
+}
+
+func (s *Store) UpdateNodeStatus(id string, online bool, lastError string) error {
+	id = normalizeID(id)
+	if id == "" {
+		return fmt.Errorf("node id is required")
+	}
+	now := time.Now().UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	node, ok := s.db.Nodes[id]
+	if !ok {
+		return fmt.Errorf("node %q not found", id)
+	}
+	node.Status.Online = online
+	node.Status.LastSyncAt = now
+	if online {
+		node.Status.LastSeenAt = now
+		node.Status.LastError = ""
+	} else {
+		node.Status.LastError = strings.TrimSpace(lastError)
+		if len(node.Status.LastError) > 500 {
+			node.Status.LastError = node.Status.LastError[:500]
+		}
+	}
+	return s.saveLocked()
+}
+
 func (s *Store) UpsertUser(in User) (PublicUser, error) {
 	if in.Name == "" {
 		return PublicUser{}, fmt.Errorf("user name is required")
@@ -248,6 +364,10 @@ func (s *Store) ListTunnels(userName string) []Tunnel {
 }
 
 func (s *Store) CreateTunnel(in Tunnel) (Tunnel, error) {
+	in.NodeID = normalizeID(in.NodeID)
+	if in.NodeID == "" {
+		in.NodeID = DefaultNodeID
+	}
 	in.Mode = strings.ToLower(strings.TrimSpace(in.Mode))
 	in.Engine = strings.ToLower(strings.TrimSpace(in.Engine))
 	if in.LocalIP == "" {
@@ -270,7 +390,7 @@ func (s *Store) CreateTunnel(in Tunnel) (Tunnel, error) {
 		return Tunnel{}, err
 	}
 	if in.ID == "" {
-		in.ID = nextTunnelID(in.UserName, in.Engine, in.Mode, in.RemotePort)
+		in.ID = nextTunnelID(in.UserName, in.NodeID, in.Engine, in.Mode, in.RemotePort)
 	}
 	if _, exists := s.db.Tunnels[in.ID]; exists {
 		return Tunnel{}, fmt.Errorf("tunnel %q already exists", in.ID)
@@ -288,6 +408,10 @@ func (s *Store) CreateTunnel(in Tunnel) (Tunnel, error) {
 }
 
 func (s *Store) UpdateTunnel(id string, in Tunnel) (Tunnel, error) {
+	in.NodeID = normalizeID(in.NodeID)
+	if in.NodeID == "" {
+		in.NodeID = DefaultNodeID
+	}
 	in.Mode = strings.ToLower(strings.TrimSpace(in.Mode))
 	in.Engine = strings.ToLower(strings.TrimSpace(in.Engine))
 	if in.LocalIP == "" {
@@ -347,8 +471,15 @@ func (s *Store) validateTunnelLocked(in Tunnel, existingID string) error {
 	if in.UserName == "" {
 		return fmt.Errorf("userName is required")
 	}
-	if in.Engine != EngineFRP && in.Engine != EngineNPS {
-		return fmt.Errorf("engine must be %q or %q", EngineFRP, EngineNPS)
+	if in.Engine != EngineNPS {
+		return fmt.Errorf("engine must be %q", EngineNPS)
+	}
+	node, ok := s.db.Nodes[in.NodeID]
+	if !ok || !node.Enabled {
+		return fmt.Errorf("node %q not found or disabled", in.NodeID)
+	}
+	if in.Engine == EngineNPS && !node.NPSEnabled {
+		return fmt.Errorf("node %q does not enable nps", in.NodeID)
 	}
 	if in.Mode == "" {
 		return fmt.Errorf("mode is required")
@@ -370,8 +501,14 @@ func (s *Store) validateTunnelLocked(in Tunnel, existingID string) error {
 		if !portInRanges(in.RemotePort, u.PortPools) {
 			return fmt.Errorf("remote port %d is outside user port pool %s", in.RemotePort, FormatPortRanges(u.PortPools))
 		}
+		if len(node.PortPools) > 0 && !portInRanges(in.RemotePort, node.PortPools) {
+			return fmt.Errorf("remote port %d is outside node %s port pool %s", in.RemotePort, in.NodeID, FormatPortRanges(node.PortPools))
+		}
 		for _, existing := range s.db.Tunnels {
 			if existing.ID == existingID || !isPortMode(existing.Mode) {
+				continue
+			}
+			if tunnelNodeID(existing) != in.NodeID {
 				continue
 			}
 			if existing.RemotePort == in.RemotePort && portTransport(existing.Mode) == portTransport(in.Mode) {
@@ -386,6 +523,9 @@ func (s *Store) validateTunnelLocked(in Tunnel, existingID string) error {
 		for _, domain := range in.Domains {
 			if !domainInPools(domain, u.DomainPools) {
 				return fmt.Errorf("domain %s is outside user domain pool %s", domain, FormatDomainPools(u.DomainPools))
+			}
+			if len(node.DomainPools) > 0 && !domainInPools(domain, node.DomainPools) {
+				return fmt.Errorf("domain %s is outside node %s domain pool %s", domain, in.NodeID, FormatDomainPools(node.DomainPools))
 			}
 			for _, existing := range s.db.Tunnels {
 				if existing.ID == existingID || !isDomainMode(existing.Mode) {
@@ -432,10 +572,55 @@ func (s *Store) load() error {
 	if s.db.Users == nil {
 		s.db.Users = map[string]*User{}
 	}
+	if s.db.Nodes == nil {
+		s.db.Nodes = map[string]*Node{}
+	}
 	if s.db.Tunnels == nil {
 		s.db.Tunnels = map[string]*Tunnel{}
 	}
 	return nil
+}
+
+func (s *Store) migrateDefaultNode() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	now := time.Now().UTC()
+	if s.db.Nodes == nil {
+		s.db.Nodes = map[string]*Node{}
+		changed = true
+	}
+	if _, ok := s.db.Nodes[DefaultNodeID]; !ok {
+		s.db.Nodes[DefaultNodeID] = &Node{
+			ID:         DefaultNodeID,
+			Name:       "Local Node",
+			Token:      randomSecret(),
+			Enabled:    true,
+			FRPEnabled: false,
+			NPSEnabled: true,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}
+		changed = true
+	}
+	for _, tunnel := range s.db.Tunnels {
+		if tunnel.NodeID == "" {
+			tunnel.NodeID = DefaultNodeID
+			tunnel.UpdatedAt = now
+			changed = true
+		}
+	}
+	for _, node := range s.db.Nodes {
+		if node.Token == "" {
+			node.Token = randomSecret()
+			node.UpdatedAt = now
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.saveLocked()
 }
 
 func (s *Store) migrateLegacyPasswords() error {
@@ -464,6 +649,24 @@ func (s *Store) saveLocked() error {
 		return err
 	}
 	return os.WriteFile(s.path, append(b, '\n'), 0o600)
+}
+
+func cloneNode(node *Node) Node {
+	cp := *node
+	cp.PortPools = append([]PortRange(nil), node.PortPools...)
+	cp.DomainPools = append([]string(nil), node.DomainPools...)
+	return cp
+}
+
+func tunnelNodeID(tunnel *Tunnel) string {
+	if tunnel == nil || tunnel.NodeID == "" {
+		return DefaultNodeID
+	}
+	return tunnel.NodeID
+}
+
+func normalizeID(input string) string {
+	return strings.ToLower(strings.TrimSpace(input))
 }
 
 func portInRanges(port int, ranges []PortRange) bool {
@@ -510,11 +713,15 @@ func portTransport(mode string) string {
 	return "tcp"
 }
 
-func nextTunnelID(userName, engine, mode string, port int) string {
-	if port > 0 {
-		return fmt.Sprintf("%s-%s-%s-%d", userName, engine, mode, port)
+func nextTunnelID(userName, nodeID, engine, mode string, port int) string {
+	prefix := fmt.Sprintf("%s-%s-%s", userName, engine, mode)
+	if nodeID != "" && nodeID != DefaultNodeID {
+		prefix = fmt.Sprintf("%s-%s-%s-%s", userName, nodeID, engine, mode)
 	}
-	return fmt.Sprintf("%s-%s-%s-%s", userName, engine, mode, randomSecret()[:8])
+	if port > 0 {
+		return fmt.Sprintf("%s-%d", prefix, port)
+	}
+	return fmt.Sprintf("%s-%s", prefix, randomSecret()[:8])
 }
 
 func randomSecret() string {

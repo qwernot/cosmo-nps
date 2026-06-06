@@ -1,0 +1,19 @@
+services:
+  tunnel-agent:
+    image: darkver8/tunnel-port:latest
+    container_name: tunnel-agent
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["/usr/local/bin/tunnel-agent"]
+    environment:
+      CONTROL_URL: ${CONTROL_URL}
+      NODE_ID: ${NODE_ID}
+      NODE_TOKEN: ${NODE_TOKEN}
+      AGENT_API_ADDR: ${AGENT_API_ADDR:-:18089}
+      DATA_DIR: /app/data
+      NPS_BRIDGE_PORT: ${NPS_BRIDGE_PORT:-18024}
+      NPS_TLS_BRIDGE_PORT: ${NPS_TLS_BRIDGE_PORT:-18025}
+      NPS_HTTP_PORT: ${NPS_HTTP_PORT:-9080}
+      NPS_HTTPS_PORT: ${NPS_HTTPS_PORT:-9443}
+    volumes:
+      - ./data:/app/data

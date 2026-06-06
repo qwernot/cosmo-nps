@@ -1,20 +1,15 @@
-# Docker 部署
+# 总控 Docker 部署
 
-这个目录提供 `darkver8/tunnel-control:latest` 的 Compose 部署示例。
+这个目录只用于部署总控后台。
 
-当前部署只有一个容器：
+总控不会启动 NPS，也不会监听 NPS 业务端口。它只负责：
 
-```text
-tunnel-stack
-```
-
-容器内只有一个主进程：
-
-```text
-tunnel-control
-```
-
-FRP 和 NPS 服务端逻辑嵌入在这个主进程里，不再单独启动 `frps` / `nps` 容器。
+- 登录和权限
+- 用户、端口池、域名池
+- 节点管理
+- NPS 隧道配置
+- 向节点 `tunnel-agent` 下发配置
+- 查看日志、节点状态和可用性检测结果
 
 ## 启动
 
@@ -28,92 +23,38 @@ docker compose up -d
 至少修改：
 
 ```text
-PUBLIC_ADDR=服务器IP或域名
+PUBLIC_ADDR=总控服务器 IP 或域名
 ADMIN_PASSWORD=强密码
 ```
 
 访问：
 
 ```text
-http://服务器IP:8088
+http://总控服务器IP:8088
 ```
 
-## 端口
-
-需要在服务器防火墙或安全组放行：
+## 总控端口
 
 ```text
-8088/tcp        统一后台
-17000/tcp       FRP 客户端接入端口
-18024/tcp       NPS bridge
-18025/tcp       NPS TLS bridge
-9080/tcp        NPS HTTP proxy
-9443/tcp        NPS HTTPS proxy
-9081/tcp        FRP HTTP vhost
-9444/tcp        FRP HTTPS vhost
-10000-20000/tcp 用户 TCP/SOCKS5 隧道端口范围
-10000-20000/udp 如果需要 UDP 隧道
+8088/tcp  Web 后台
 ```
 
-FRP dashboard 和 NPS dashboard 默认关闭：
+NPS 业务端口由节点服务提供，不在总控容器里监听。
+
+## 节点
+
+节点使用 `deploy/agent/compose.yml`，启动入口是：
 
 ```text
-FRP_DASHBOARD_PORT=0
-NPS_WEB_PORT=0
+/usr/local/bin/tunnel-agent
 ```
 
-## 使用
-
-1. 登录统一后台。
-2. 创建用户并分配固定端口池。
-3. 如需 HTTP/HTTPS，给用户分配域名池。
-4. 创建 FRP 或 NPS 隧道。
-5. 在“配置”页复制该用户的 `frpc.toml` 或 `npc` 命令。
-6. 用户启动客户端。
-
-TCP/UDP/SOCKS5 隧道使用端口池。HTTP/HTTPS 隧道使用域名池，不需要远程端口。
-
-域名模式下，DNS 需要指向服务器；如果不想暴露 9080/9081/9443/9444，可以用安全组、端口转发或反向代理把 80/443 转到对应入口端口。
-
-## 数据
-
-宿主机 `./data` 会挂载到容器 `/app/data`：
+节点服务器需要放行：
 
 ```text
-data/control/tunnel-control.json
-data/frp/frps-users.json
-data/nps/conf/
-data/export/
-```
-
-备份 `data` 目录即可保留后台用户、隧道和引擎数据。
-
-## 命令
-
-```bash
-docker compose ps
-docker compose logs -f tunnel-stack
-docker compose restart tunnel-stack
-docker compose down
-```
-
-## 升级
-
-`upgrade.sh` 会先备份 `data`，再拉取最新镜像、重启容器并检查后台健康状态：
-
-```bash
-cd deploy/docker
-./upgrade.sh
-```
-
-可通过环境变量覆盖默认镜像或健康检查地址：
-
-```bash
-IMAGE=darkver8/tunnel-control:server-http HEALTH_URL=http://127.0.0.1:8088/healthz ./upgrade.sh
-```
-
-备份文件默认保存到：
-
-```text
-deploy/docker/backups/
+18089/tcp  节点配置接口，建议只允许总控访问
+18024/tcp  NPS bridge
+18025/tcp  NPS TLS bridge
+9080/tcp   NPS HTTP proxy
+9443/tcp   NPS HTTPS proxy
 ```

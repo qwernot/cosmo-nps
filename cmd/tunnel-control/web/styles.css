@@ -259,6 +259,11 @@ h2 {
   background: var(--accent-strong);
 }
 
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .button.secondary {
   background: #121e2a;
   color: var(--muted-strong);
@@ -309,9 +314,9 @@ h2 {
   font-size: 12px;
 }
 
-.diagnostics-grid {
+.resource-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   padding: 16px;
 }
@@ -322,33 +327,16 @@ h3 {
   font-size: 13px;
 }
 
-.check-list,
 .resource-list {
   display: grid;
   gap: 8px;
 }
 
-.check-item,
 .resource-card,
 .muted-box {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: #101924;
-}
-
-.check-item {
-  min-height: 42px;
-  display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(120px, 1.2fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-}
-
-.check-item strong {
-  color: var(--muted-strong);
-  font-size: 12px;
-  font-weight: 620;
 }
 
 .resource-card {
@@ -583,6 +571,12 @@ td {
   text-overflow: ellipsis;
 }
 
+.muted-line {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 tr:hover td {
   background: #14202d;
 }
@@ -675,12 +669,6 @@ tr:hover td {
   overflow-wrap: anywhere;
 }
 
-.badge.engine-frp {
-  background: rgba(96, 165, 250, 0.13);
-  color: #bfdbfe;
-  border-color: rgba(96, 165, 250, 0.25);
-}
-
 .badge.engine-nps {
   background: rgba(45, 212, 191, 0.12);
   color: #99f6e4;
@@ -744,7 +732,7 @@ pre {
   .split,
   .workspace,
   .config-layout,
-  .diagnostics-grid,
+  .resource-grid,
   .logs-toolbar,
   .log-entry {
     grid-template-columns: 1fr;

@@ -8,20 +8,6 @@ import (
 	"qwernot/tunnel-control/internal/integrated"
 )
 
-func TestPortFromListenAddr(t *testing.T) {
-	tests := map[string]int{
-		":8088":           8088,
-		"127.0.0.1:18088": 18088,
-		"8088":            8088,
-		"bad":             0,
-	}
-	for input, want := range tests {
-		if got := portFromListenAddr(input); got != want {
-			t.Fatalf("portFromListenAddr(%q) = %d, want %d", input, got, want)
-		}
-	}
-}
-
 func TestResourceUsageFor(t *testing.T) {
 	users := []core.User{{
 		Name:        "alice",
@@ -131,5 +117,77 @@ func TestHTTPEntryPort(t *testing.T) {
 	}
 	if got := httpEntryPort(core.EngineNPS, "https", runtime); got != 9443 {
 		t.Fatalf("nps https port = %d", got)
+	}
+}
+
+func TestClientStatusForTunnelMatchesNode(t *testing.T) {
+	tunnel := core.Tunnel{UserName: "alice", NodeID: "edge-a", Engine: core.EngineNPS, Mode: "tcp", Enabled: true}
+	live := []integrated.ClientStatus{
+		{NodeID: core.DefaultNodeID, UserName: "alice", Engine: core.EngineNPS, Online: true},
+		{NodeID: "edge-a", UserName: "alice", Engine: core.EngineNPS, Online: false},
+	}
+	got := clientStatusForTunnel(tunnel, live)
+	if got.State != "unknown" || got.Online {
+		t.Fatalf("remote offline status should not borrow local online client: %#v", got)
+	}
+	live[1].Online = true
+	got = clientStatusForTunnel(tunnel, live)
+	if got.State != "online" || !got.Online {
+		t.Fatalf("expected edge client to be online: %#v", got)
+	}
+}
+
+func TestRuntimeForNode(t *testing.T) {
+	fallback := core.RuntimeConfig{
+		ServerAddr:       "local.example.com",
+		FRPServerPort:    17000,
+		FRPHTTPPort:      9081,
+		NPSServerPort:    18024,
+		NPSHTTPProxyPort: 9080,
+	}
+	node := core.Node{
+		PublicAddr: "edge.example.com",
+		Runtime: core.RuntimeConfig{
+			FRPServerPort: 17100,
+			NPSServerPort: 18124,
+		},
+	}
+	got := runtimeForNode(node, fallback)
+	if got.ServerAddr != "edge.example.com" || got.FRPServerPort != 17100 || got.NPSServerPort != 18124 {
+		t.Fatalf("unexpected node runtime: %#v", got)
+	}
+	if got.FRPHTTPPort != fallback.FRPHTTPPort || got.NPSHTTPProxyPort != fallback.NPSHTTPProxyPort {
+		t.Fatalf("node runtime should keep fallback ports when not overridden: %#v", got)
+	}
+}
+
+func TestProbeHost(t *testing.T) {
+	tests := map[string]string{
+		"":                          "127.0.0.1",
+		"8.162.0.198":               "8.162.0.198",
+		"8.162.0.198:18089":         "8.162.0.198",
+		"http://node.example:18089": "node.example",
+		"https://node.example/api":  "node.example",
+	}
+	for input, want := range tests {
+		if got := probeHost(input); got != want {
+			t.Fatalf("probeHost(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestFilterTunnelsByNode(t *testing.T) {
+	tunnels := []core.Tunnel{
+		{ID: "legacy"},
+		{ID: "local", NodeID: core.DefaultNodeID},
+		{ID: "edge", NodeID: "edge-a"},
+	}
+	got := filterTunnelsByNode(tunnels, core.DefaultNodeID)
+	if len(got) != 2 {
+		t.Fatalf("local node should include legacy tunnels, got %#v", got)
+	}
+	got = filterTunnelsByNode(tunnels, "edge-a")
+	if len(got) != 1 || got[0].ID != "edge" {
+		t.Fatalf("unexpected edge tunnels: %#v", got)
 	}
 }

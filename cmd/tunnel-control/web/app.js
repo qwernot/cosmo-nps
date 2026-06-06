@@ -1,8 +1,8 @@
 const state = {
   me: null,
   users: [],
+  nodes: [],
   tunnels: [],
-  engines: [],
   runtime: null,
   diagnostics: null,
   clients: null,
@@ -14,10 +14,10 @@ const state = {
 const titles = {
   dashboard: ["概览", "统一用户、端口池、域名池和双引擎隧道。"],
   users: ["用户", "管理员创建账号，分配固定端口池和域名池。"],
-  tunnels: ["隧道", "创建 FRP 或 NPS 隧道；TCP/UDP/SOCKS5 用端口，HTTP/HTTPS 用域名。"],
-  configs: ["配置", "查看用户自己的 frpc.toml 和 npc 启动命令。"],
-  engines: ["引擎", "查看单容器内置 FRP/NPS 的运行状态和对外端口。"],
-  logs: ["日志", "查看后台、FRP、NPS 最近运行日志。"],
+  nodes: ["节点", "管理承载 NPS 引擎的服务器节点。"],
+  tunnels: ["隧道", "创建 NPS 隧道；TCP/UDP/SOCKS5 用端口，HTTP/HTTPS 用域名。"],
+  configs: ["配置", "查看统一客户端、npc 启动命令和 NPS 密钥。"],
+  logs: ["日志", "查看总控和节点同步相关的最近运行日志。"],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -107,14 +107,14 @@ async function refresh() {
   if (state.view === "dashboard" || state.view === "users") {
     requests.diagnostics = api("/api/diagnostics");
   }
+  if (state.view === "dashboard" || state.view === "nodes" || state.view === "tunnels" || state.view === "configs") {
+    requests.nodes = api("/api/nodes");
+  }
   if (state.view === "dashboard" || state.view === "users" || state.view === "tunnels") {
     requests.clients = api("/api/clients");
   }
   if (state.view === "dashboard" || state.view === "tunnels") {
     requests.availability = api("/api/availability");
-  }
-  if (isAdmin() && state.view === "engines") {
-    requests.engines = api("/api/engines");
   }
   if (isAdmin() && state.view === "logs") {
     requests.logs = loadLogs(false);
@@ -123,11 +123,11 @@ async function refresh() {
   for (const [key, value] of entries) {
     if (key === "runtime") state.runtime = value;
     if (key === "users") state.users = value;
+    if (key === "nodes") state.nodes = value;
     if (key === "tunnels") state.tunnels = value;
     if (key === "diagnostics") state.diagnostics = value;
     if (key === "clients") state.clients = value;
     if (key === "availability") state.availability = value;
-    if (key === "engines") state.engines = value;
     if (key === "logs") state.logs = value;
   }
   render();
@@ -136,12 +136,13 @@ async function refresh() {
 function render() {
   $("#session-user").textContent = `${state.me.name} (${state.me.role})`;
   const client = state.runtime?.client || {};
-  $("#runtime-server").textContent = `${client.serverAddr || "-"}:${client.frpServerPort || "-"}`;
+  $("#runtime-server").textContent = `${client.serverAddr || "-"}:${client.npsServerPort || "-"}`;
   $$(".admin-only").forEach((el) => el.classList.toggle("hidden", !isAdmin()));
-  if (!isAdmin() && (state.view === "users" || state.view === "engines" || state.view === "logs")) {
+  if (!isAdmin() && (state.view === "users" || state.view === "nodes" || state.view === "logs")) {
     switchView("dashboard");
   }
   renderUserOptions();
+  renderNodeOptions();
   if (state.view === "dashboard") {
     renderMetrics();
     renderDashboardTables();
@@ -151,19 +152,19 @@ function render() {
     renderUsers();
     renderDiagnostics();
   }
+  if (state.view === "nodes") renderNodes();
   if (state.view === "tunnels") {
     renderTunnels();
     updateTunnelModeFields();
   }
-  if (state.view === "engines") renderEngines();
   if (state.view === "logs") renderLogs();
 }
 
 function renderMetrics() {
   $("#metric-users").textContent = state.users.length;
   $("#metric-tunnels").textContent = state.tunnels.length;
-  $("#metric-frp").textContent = state.tunnels.filter((t) => t.engine === "frp").length;
-  $("#metric-nps").textContent = state.tunnels.filter((t) => t.engine === "nps").length;
+  $("#metric-nodes").textContent = nodes().filter((node) => node.id !== "local").length;
+  $("#metric-online-nodes").textContent = nodes().filter((node) => node.id !== "local" && node.status?.online).length;
 }
 
 function renderDashboardTables() {
@@ -195,7 +196,6 @@ function renderUsers() {
       <td>${u.maxPorts || 0}</td>
       <td>${resourceSummary(u.name)}</td>
       <td>
-        <span class="badge ${u.hasFrpToken ? "ok" : "warn"}">FRP</span>
         <span class="badge ${u.hasNpsVerifyKey ? "ok" : "warn"}">NPS</span>
       </td>
       <td>${userOnlineBadges(u)}</td>
@@ -210,18 +210,53 @@ function renderUsers() {
   `).join("") || emptyRow(9);
 }
 
+function nodes() {
+  const values = state.nodes.length ? state.nodes : state.runtime?.nodes || [];
+  return values.length ? values : [{ id: "local", name: "Local Node", enabled: true, frpEnabled: false, npsEnabled: true }];
+}
+
+function nodeFor(id) {
+  const nodeId = id || "local";
+  return nodes().find((node) => node.id === nodeId);
+}
+
+function nodeLabel(id) {
+  const node = nodeFor(id);
+  if (!node) return id || "local";
+  return node.name && node.name !== node.id ? `${node.name} (${node.id})` : node.id;
+}
+
+function renderNodes() {
+  if (!isAdmin()) return;
+  $("#nodes-table").innerHTML = nodes().map((node) => `
+    <tr>
+      <td>
+        <strong>${escapeHtml(node.name || node.id)}</strong>
+        <div class="muted-line">${escapeHtml(node.id)}</div>
+      </td>
+      <td>${escapeHtml(node.publicAddr || "-")}</td>
+      <td title="${escapeHtml(node.token || "")}">${escapeHtml(node.token ? `${node.token.slice(0, 8)}...` : "-")}</td>
+      <td>
+        <span class="badge ${node.npsEnabled ? "ok" : "idle"}">NPS</span>
+      </td>
+      <td title="${escapeHtml(formatPools(node.portPools))}">${escapeHtml(formatPools(node.portPools))}</td>
+      <td title="${escapeHtml(formatDomains(node.domainPools))}">${escapeHtml(formatDomains(node.domainPools))}</td>
+      <td>${statusBadge(node.enabled)}</td>
+      <td>${nodeSyncBadge(node)}</td>
+      <td>
+        <div class="cell-actions">
+          <button class="button small secondary" data-edit-node="${escapeHtml(node.id)}">编辑</button>
+          <button class="button small danger" data-delete-node="${escapeHtml(node.id)}" ${node.id === "local" ? "disabled" : ""}>删除</button>
+        </div>
+      </td>
+    </tr>
+  `).join("") || emptyRow(9);
+}
+
 function renderDiagnostics() {
   const diagnostics = state.diagnostics || {};
   const generatedAt = diagnostics.generatedAt ? new Date(diagnostics.generatedAt).toLocaleString() : "-";
   $("#diagnostics-time").textContent = `更新 ${generatedAt}`;
-  const checks = diagnostics.checks || [];
-  $("#diagnostic-checks").innerHTML = checks.length ? checks.map((check) => `
-    <div class="check-item">
-      <span>${escapeHtml(check.name)}</span>
-      <strong>${check.port ? `${escapeHtml(check.host)}:${check.port}` : "-"}</strong>
-      <span class="badge ${check.open ? "ok" : "warn"}">${check.open ? "正常" : "异常"}</span>
-    </div>
-  `).join("") : `<div class="muted-box">${isAdmin() ? "暂无监听自检数据" : "管理员可查看监听自检"}</div>`;
   const resources = diagnostics.resources || [];
   $("#diagnostic-resources").innerHTML = resources.length ? resources.map((usage) => `
     <div class="resource-card">
@@ -271,7 +306,6 @@ function availabilityForTunnel(id) {
 
 function userOnlineBadges(user) {
   const items = [];
-  if (user.hasFrpToken) items.push(clientBadge(clientFor(user.name, "frp"), "FRP"));
   if (user.hasNpsVerifyKey) items.push(clientBadge(clientFor(user.name, "nps"), "NPS"));
   return items.length ? `<div class="client-stack">${items.join("")}</div>` : "-";
 }
@@ -347,6 +381,7 @@ function renderTunnels() {
     <tr>
       <td title="${escapeHtml(t.id)}">${escapeHtml(t.id)}</td>
       <td>${escapeHtml(t.userName)}</td>
+      <td>${escapeHtml(nodeLabel(t.nodeId))}</td>
       <td>${engineBadge(t.engine)}</td>
       <td>${escapeHtml(t.mode)}</td>
       <td title="${escapeHtml(tunnelEntry(t))}">${escapeHtml(tunnelEntry(t))}</td>
@@ -360,44 +395,7 @@ function renderTunnels() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(9);
-}
-
-function renderEngines() {
-  if (!isAdmin()) return;
-  const embedded = Boolean(state.runtime?.engines?.embedded);
-  $("#engines-table").innerHTML = state.engines.map((e) => `
-    <tr>
-      <td>${engineBadge(e.engine)}</td>
-      <td>${e.configured ? '<span class="badge ok">已配置</span>' : '<span class="badge warn">未配置</span>'}</td>
-      <td>${e.running ? `<span class="badge ok">运行${e.pid ? ` PID ${e.pid}` : ""}</span>` : '<span class="badge warn">未运行</span>'}</td>
-      <td>${e.port ? `${e.port} ${e.portOpen ? '<span class="badge ok">open</span>' : '<span class="badge warn">closed</span>'}` : "-"}</td>
-    </tr>
-  `).join("") || emptyRow(4);
-  const client = state.runtime?.client || {};
-  const engineCfg = state.runtime?.engines || {};
-  $("#engine-help").textContent = [
-    `运行模式: ${embedded ? "单容器内置 FRP/NPS" : "外部进程"}`,
-    `公网地址: ${client.serverAddr || "-"}`,
-    "",
-    "FRP:",
-    `  客户端连接端口: ${client.frpServerPort || "-"}`,
-    `  HTTP 入口端口: ${client.frpHttpPort || "-"}`,
-    `  HTTPS 入口端口: ${client.frpHttpsPort || "-"}`,
-    `  用户文件: ${state.runtime?.frpUsersPath || "-"}`,
-    "",
-    "NPS:",
-    `  NPC 连接端口: ${client.npsServerPort || "-"}`,
-    `  HTTP 入口端口: ${client.npsHttpProxyPort || "-"}`,
-    `  HTTPS 入口端口: ${client.npsHttpsProxyPort || "-"}`,
-    `  客户端文件: ${state.runtime?.npsClientsPath || "-"}`,
-    "",
-    `配置导出目录: ${state.runtime?.configOutDir || "-"}`,
-    "",
-    embedded
-      ? "内置模式下引擎由容器生命周期管理；修改端口需要重建或重启容器。"
-      : `外部 FRP: ${engineCfg.frpsBin || "(未配置)"}\n外部 NPS: ${engineCfg.npsBin || "(未配置)"}`,
-  ].join("\n");
+  `).join("") || emptyRow(10);
 }
 
 function renderLogs() {
@@ -442,8 +440,31 @@ function renderUserOptions() {
   tunnelUser.disabled = !isAdmin();
 }
 
+function renderNodeOptions() {
+  const options = nodes().map((node) => `<option value="${escapeHtml(node.id)}">${escapeHtml(nodeLabel(node.id))}</option>`).join("");
+  const tunnelNode = $('select[name="nodeId"]');
+  if (tunnelNode) tunnelNode.innerHTML = options;
+  const configNode = $("#config-node");
+  if (configNode) configNode.innerHTML = options;
+}
+
 function statusBadge(enabled) {
   return `<span class="badge ${enabled ? "ok" : "warn"}">${enabled ? "启用" : "停用"}</span>`;
+}
+
+function nodeSyncBadge(node) {
+  if (node.id === "local") return '<span class="badge idle">总控</span>';
+  const status = node.status || {};
+  const online = Boolean(status.online);
+  const lastSeen = status.lastSeenAt ? new Date(status.lastSeenAt).toLocaleString() : "";
+  const lastSync = status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString() : "";
+  const detail = [
+    online ? "最近推送成功" : "最近推送失败或尚未同步",
+    lastSeen ? `在线时间: ${lastSeen}` : "",
+    lastSync ? `同步时间: ${lastSync}` : "",
+    status.lastError ? `错误: ${status.lastError}` : "",
+  ].filter(Boolean).join("\n");
+  return `<span class="badge ${online ? "ok" : "danger"}" title="${escapeHtml(detail)}">${online ? "在线" : "离线"}</span>`;
 }
 
 function engineBadge(engine) {
@@ -455,7 +476,7 @@ function emptyRow(cols) {
 }
 
 function switchView(view) {
-  if ((view === "users" || view === "engines" || view === "logs") && !isAdmin()) return;
+  if ((view === "users" || view === "nodes" || view === "logs") && !isAdmin()) return;
   state.view = view;
   $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
   $$(".view").forEach((el) => el.classList.toggle("active", el.id === `view-${view}`));
@@ -480,12 +501,19 @@ function clearUserForm() {
   $('#user-form input[name="maxPorts"]').value = "3";
 }
 
+function clearNodeForm() {
+  $("#node-form").reset();
+  $('#node-form input[name="enabled"]').checked = true;
+  $('#node-form input[name="npsEnabled"]').checked = true;
+}
+
 function clearTunnelForm() {
   $("#tunnel-form").reset();
   $('#tunnel-form input[name="id"]').value = "";
   $('#tunnel-form input[name="localIp"]').value = "127.0.0.1";
   $('#tunnel-form input[name="enabled"]').checked = true;
   if (state.users[0]) $('select[name="userName"]').value = state.users[0].name;
+  if (nodes()[0]) $('select[name="nodeId"]').value = nodes()[0].id;
   updateTunnelModeFields();
 }
 
@@ -500,10 +528,29 @@ function editUser(name) {
   field(form, "maxPorts").value = user.maxPorts || 0;
   field(form, "portPool").value = formatPools(user.portPools);
   field(form, "domainPool").value = formatDomains(user.domainPools);
-  field(form, "frpToken").value = "";
   field(form, "npsVerifyKey").value = "";
   field(form, "enabled").checked = user.enabled;
   switchView("users");
+}
+
+function editNode(id) {
+  if (!isAdmin()) return;
+  const node = nodeFor(id);
+  if (!node) return;
+  const form = $("#node-form");
+  const runtime = node.runtime || {};
+  field(form, "id").value = node.id;
+  field(form, "name").value = node.name || "";
+  field(form, "token").value = node.token || "";
+  field(form, "publicAddr").value = node.publicAddr || "";
+  field(form, "portPool").value = formatPools(node.portPools);
+  field(form, "domainPool").value = formatDomains(node.domainPools);
+  field(form, "npsServerPort").value = runtime.npsServerPort || "";
+  field(form, "npsHttpProxyPort").value = runtime.npsHttpProxyPort || "";
+  field(form, "npsHttpsProxyPort").value = runtime.npsHttpsProxyPort || "";
+  field(form, "enabled").checked = node.enabled;
+  field(form, "npsEnabled").checked = node.npsEnabled;
+  switchView("nodes");
 }
 
 function editTunnel(id) {
@@ -512,7 +559,8 @@ function editTunnel(id) {
   const form = $("#tunnel-form");
   field(form, "id").value = tunnel.id;
   field(form, "userName").value = tunnel.userName;
-  field(form, "engine").value = tunnel.engine;
+  field(form, "nodeId").value = tunnel.nodeId || "local";
+  if (field(form, "engine")) field(form, "engine").value = tunnel.engine;
   field(form, "mode").value = tunnel.mode;
   field(form, "remotePort").value = tunnel.remotePort || "";
   field(form, "localIp").value = tunnel.localIp || "127.0.0.1";
@@ -587,13 +635,38 @@ async function saveUser(event) {
     portPool: data.portPool.trim(),
     domainPool: data.domainPool.trim(),
     maxPorts: Number(data.maxPorts || 0),
-    frpToken: data.frpToken.trim(),
     npsVerifyKey: data.npsVerifyKey.trim(),
   };
   await api("/api/users", { method: "POST", body: JSON.stringify(body) });
   clearUserForm();
   await refresh();
   toast("用户已保存");
+}
+
+async function saveNode(event) {
+  event.preventDefault();
+  if (!isAdmin()) return;
+  const form = event.currentTarget;
+  const data = formData(form);
+  const body = {
+    id: data.id.trim(),
+    name: data.name.trim(),
+    token: data.token.trim(),
+    publicAddr: data.publicAddr.trim(),
+    enabled: field(form, "enabled").checked,
+    npsEnabled: field(form, "npsEnabled").checked,
+    portPool: data.portPool.trim(),
+    domainPool: data.domainPool.trim(),
+    runtime: {
+      npsServerPort: Number(data.npsServerPort || 0),
+      npsHttpProxyPort: Number(data.npsHttpProxyPort || 0),
+      npsHttpsProxyPort: Number(data.npsHttpsProxyPort || 0),
+    },
+  };
+  await api("/api/nodes", { method: "POST", body: JSON.stringify(body) });
+  clearNodeForm();
+  await refresh();
+  toast("节点已保存");
 }
 
 async function saveTunnel(event) {
@@ -603,7 +676,8 @@ async function saveTunnel(event) {
   const body = {
     id: data.id,
     userName: isAdmin() ? data.userName : state.me.name,
-    engine: data.engine,
+    nodeId: data.nodeId || "local",
+    engine: "nps",
     mode: data.mode,
     remotePort: isDomainMode(data.mode) ? 0 : Number(data.remotePort || 0),
     localIp: data.localIp.trim() || "127.0.0.1",
@@ -631,6 +705,14 @@ async function deleteUser(name) {
   toast("用户已删除");
 }
 
+async function deleteNode(id) {
+  if (!isAdmin()) return;
+  if (!confirm(`删除节点 ${id}？已被隧道使用的节点不能删除。`)) return;
+  await api(`/api/nodes/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await refresh();
+  toast("节点已删除");
+}
+
 async function deleteTunnel(id) {
   if (!confirm(`删除隧道 ${id}？`)) return;
   await api(`/api/tunnels/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -644,9 +726,15 @@ async function loadConfig(kind) {
     toast("先创建用户");
     return;
   }
-  const path = kind === "frp" ? "frpc.toml" : "npc-command";
-  const text = await api(`/api/users/${encodeURIComponent(user)}/${path}`, { headers: {} });
-  $("#config-title").textContent = kind === "frp" ? "frpc.toml" : "npc";
+  const paths = {
+    nps: "npc-command",
+    tunnelClient: "tunnel-client",
+    npsKey: "nps-key",
+  };
+  const path = paths[kind] || "npc-command";
+  const node = $("#config-node")?.value || "local";
+  const text = await api(`/api/users/${encodeURIComponent(user)}/${path}?node=${encodeURIComponent(node)}`, { headers: {} });
+  $("#config-title").textContent = kind === "npsKey" ? "NPS 密钥" : kind === "tunnelClient" ? "tunnel-client" : "npc";
   $("#config-output").textContent = text;
 }
 
@@ -669,8 +757,10 @@ document.addEventListener("click", async (event) => {
   if (target.dataset.view) switchView(target.dataset.view);
   if (target.dataset.jump) switchView(target.dataset.jump);
   if (target.dataset.editUser) editUser(target.dataset.editUser);
+  if (target.dataset.editNode) editNode(target.dataset.editNode);
   if (target.dataset.editTunnel) editTunnel(target.dataset.editTunnel);
   if (target.dataset.deleteUser) await deleteUser(target.dataset.deleteUser).catch((err) => toast(err.message));
+  if (target.dataset.deleteNode) await deleteNode(target.dataset.deleteNode).catch((err) => toast(err.message));
   if (target.dataset.deleteTunnel) await deleteTunnel(target.dataset.deleteTunnel).catch((err) => toast(err.message));
 });
 
@@ -678,14 +768,16 @@ $("#login-form").addEventListener("submit", (event) => login(event).catch((err) 
 $("#logout-button").addEventListener("click", () => logout().catch((err) => toast(err.message)));
 $("#password-button").addEventListener("click", () => changeOwnPassword().catch((err) => toast(err.message)));
 $("#refresh-button").addEventListener("click", () => refresh().then(() => toast("已刷新")).catch((err) => toast(err.message)));
-$("#refresh-engines").addEventListener("click", () => refresh().then(() => toast("已刷新")).catch((err) => toast(err.message)));
 $("#user-form").addEventListener("submit", (event) => saveUser(event).catch((err) => toast(err.message)));
+$("#node-form").addEventListener("submit", (event) => saveNode(event).catch((err) => toast(err.message)));
 $("#tunnel-form").addEventListener("submit", (event) => saveTunnel(event).catch((err) => toast(err.message)));
 $('select[name="mode"]').addEventListener("change", updateTunnelModeFields);
 $("#clear-user-form").addEventListener("click", clearUserForm);
+$("#clear-node-form").addEventListener("click", clearNodeForm);
 $("#clear-tunnel-form").addEventListener("click", clearTunnelForm);
-$("#load-frpc").addEventListener("click", () => loadConfig("frp").catch((err) => toast(err.message)));
 $("#load-npc").addEventListener("click", () => loadConfig("nps").catch((err) => toast(err.message)));
+$("#load-tunnel-client").addEventListener("click", () => loadConfig("tunnelClient").catch((err) => toast(err.message)));
+$("#load-nps-key").addEventListener("click", () => loadConfig("npsKey").catch((err) => toast(err.message)));
 $("#copy-config").addEventListener("click", () => copyConfig().catch((err) => toast(err.message)));
 $("#export-configs").addEventListener("click", () => exportConfigs().catch((err) => toast(err.message)));
 $("#refresh-logs").addEventListener("click", () => loadLogs(true).then(() => toast("已刷新")).catch((err) => toast(err.message)));

@@ -31,6 +31,10 @@ func (c RuntimeConfig) withDefaults() RuntimeConfig {
 	return c
 }
 
+func (c RuntimeConfig) WithDefaultsForClient() RuntimeConfig {
+	return c.withDefaults()
+}
+
 func RenderFRPC(user User, tunnels []Tunnel, cfg RuntimeConfig) (string, error) {
 	cfg = cfg.withDefaults()
 	if user.FRPToken == "" {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -8,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"flag"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -20,7 +23,6 @@ import (
 	"time"
 
 	"qwernot/tunnel-control/internal/core"
-	"qwernot/tunnel-control/internal/engine"
 	"qwernot/tunnel-control/internal/integrated"
 )
 
@@ -39,24 +41,29 @@ func main() {
 		dbPath           = flag.String("db", ".data/tunnel-control.json", "JSON database path")
 		publicAddr       = flag.String("public-addr", "127.0.0.1", "public server address used in generated client configs")
 		frpServerPort    = flag.Int("frp-port", 7000, "frps bind port used in generated frpc configs")
-		frpHTTPPort      = flag.Int("frp-http-port", 0, "embedded FRP HTTP vhost port")
-		frpHTTPSPort     = flag.Int("frp-https-port", 0, "embedded FRP HTTPS vhost port")
+		frpHTTPPort      = flag.Int("frp-http-port", 0, "FRP HTTP vhost port used in generated local-node configs")
+		frpHTTPSPort     = flag.Int("frp-https-port", 0, "FRP HTTPS vhost port used in generated local-node configs")
 		npsServerPort    = flag.Int("nps-port", 8024, "nps bridge port used in generated npc commands")
 		npsHTTPPort      = flag.Int("nps-http-port", 0, "NPS HTTP proxy port shown in runtime info")
 		npsHTTPSPort     = flag.Int("nps-https-port", 0, "NPS HTTPS proxy port shown in runtime info")
-		frpsBin          = flag.String("frps-bin", "", "optional frps binary path for engine start/stop")
-		frpsConfig       = flag.String("frps-config", "", "optional frps config path used with -c")
-		npsBin           = flag.String("nps-bin", "", "optional nps binary path for engine start/stop")
-		npsWorkDir       = flag.String("nps-workdir", "", "optional nps working directory containing conf and web folders")
-		embeddedEngines  = flag.Bool("embedded-engines", false, "run FRP and NPS engines in this process")
-		frpDashboardPort = flag.Int("frp-dashboard-port", 0, "embedded FRP dashboard port; 0 disables the native dashboard")
+		frpsBin          = flag.String("frps-bin", "", "accepted for compatibility; ignored by control-only mode")
+		frpsConfig       = flag.String("frps-config", "", "accepted for compatibility; ignored by control-only mode")
+		npsBin           = flag.String("nps-bin", "", "accepted for compatibility; ignored by control-only mode")
+		npsWorkDir       = flag.String("nps-workdir", "", "accepted for compatibility; ignored by control-only mode")
+		frpDashboardPort = flag.Int("frp-dashboard-port", 0, "accepted for compatibility; ignored by control-only mode")
 		frpUsersPath     = flag.String("frp-users-path", ".data/frps-users.json", "path written by FRP userStore sync")
 		npsClientsPath   = flag.String("nps-clients-path", "", "optional path written by NPS client sync")
 		configOutDir     = flag.String("config-out-dir", ".data/export", "directory written by full config export")
 		adminUser        = flag.String("admin-user", "admin", "bootstrap admin user if no enabled admin exists")
 		adminPassword    = flag.String("admin-password", "admin123", "bootstrap admin password if no enabled admin exists")
+		agentPushPort    = flag.Int("agent-push-port", 18089, "remote tunnel-agent push API port")
 	)
 	flag.Parse()
+	_ = frpsBin
+	_ = frpsConfig
+	_ = npsBin
+	_ = npsWorkDir
+	_ = frpDashboardPort
 
 	store, err := core.NewStore(*dbPath)
 	if err != nil {
@@ -70,15 +77,16 @@ func main() {
 		log.Printf("created bootstrap admin user %q", *adminUser)
 	}
 	api := &apiServer{
-		store:        store,
-		sessions:     newSessionStore(),
-		engines:      engine.NewManager(engine.Config{FRPSBin: *frpsBin, FRPSConfig: *frpsConfig, FRPSPort: *frpServerPort, NPSBin: *npsBin, NPSWorkDir: *npsWorkDir, NPSPort: *npsServerPort, Embedded: *embeddedEngines}),
-		frpUserOut:   *frpUsersPath,
-		npsClientOut: *npsClientsPath,
-		configOut:    *configOutDir,
-		embedded:     *embeddedEngines,
-		listenAddr:   *addr,
-		logs:         logs,
+		store:         store,
+		sessions:      newSessionStore(),
+		remoteClients: map[string][]integrated.ClientStatus{},
+		frpUserOut:    *frpUsersPath,
+		npsClientOut:  *npsClientsPath,
+		configOut:     *configOutDir,
+		embedded:      false,
+		listenAddr:    *addr,
+		logs:          logs,
+		agentPushPort: *agentPushPort,
 		runtime: core.RuntimeConfig{
 			ServerAddr:       *publicAddr,
 			FRPServerPort:    *frpServerPort,
@@ -92,36 +100,7 @@ func main() {
 	if _, err := api.syncEngineUsers(); err != nil {
 		log.Printf("initial engine user sync failed: %v", err)
 	}
-	if *embeddedEngines {
-		go func() {
-			if err := integrated.RunFRP(context.Background(), integrated.FRPOptions{
-				BindPort:  *frpServerPort,
-				HTTPPort:  *frpHTTPPort,
-				HTTPSPort: *frpHTTPSPort,
-				WebPort:   *frpDashboardPort,
-				UserFile:  *frpUsersPath,
-				Admin:     *adminUser,
-				Password:  *adminPassword,
-			}); err != nil {
-				log.Printf("embedded frp stopped: %v", err)
-			}
-		}()
-		go func() {
-			if err := integrated.RunNPS(context.Background(), integrated.NPSOptions{
-				WorkDir:    *npsWorkDir,
-				BridgePort: *npsServerPort,
-			}); err != nil {
-				log.Printf("embedded nps stopped: %v", err)
-			}
-		}()
-		go func() {
-			time.Sleep(2 * time.Second)
-			if err := api.syncEmbeddedAll(); err != nil {
-				log.Printf("embedded engine state sync failed: %v", err)
-			}
-		}()
-	}
-
+	go api.pushRemoteNodesLoop(context.Background())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -133,18 +112,21 @@ func main() {
 	mux.HandleFunc("GET /api/users", api.listUsers)
 	mux.HandleFunc("POST /api/users", api.upsertUser)
 	mux.HandleFunc("DELETE /api/users/", api.deleteUser)
+	mux.HandleFunc("GET /api/agent/bundle", api.agentBundle)
+	mux.HandleFunc("GET /api/nodes", api.listNodes)
+	mux.HandleFunc("POST /api/nodes", api.upsertNode)
+	mux.HandleFunc("DELETE /api/nodes/", api.deleteNode)
 	mux.HandleFunc("GET /api/tunnels", api.listTunnels)
 	mux.HandleFunc("POST /api/tunnels", api.createTunnel)
 	mux.HandleFunc("PUT /api/tunnels/", api.updateTunnel)
 	mux.HandleFunc("DELETE /api/tunnels/", api.deleteTunnel)
 	mux.HandleFunc("GET /api/diagnostics", api.diagnostics)
 	mux.HandleFunc("GET /api/clients", api.listClients)
+	mux.HandleFunc("GET /api/client/bootstrap", api.clientBootstrap)
 	mux.HandleFunc("GET /api/availability", api.listAvailability)
 	mux.HandleFunc("GET /api/runtime", api.runtimeInfo)
-	mux.HandleFunc("GET /api/engines", api.engineStatuses)
 	mux.HandleFunc("GET /api/logs", api.listLogs)
 	mux.HandleFunc("DELETE /api/logs", api.clearLogs)
-	mux.HandleFunc("POST /api/engines/", api.engineAction)
 	mux.HandleFunc("POST /api/sync/frp-users", api.syncFRPUsers)
 	mux.HandleFunc("POST /api/export/configs", api.exportConfigs)
 	mux.HandleFunc("GET /api/users/", api.userConfig)
@@ -160,26 +142,44 @@ func main() {
 }
 
 type apiServer struct {
-	store        *core.Store
-	sessions     *sessionStore
-	engines      *engine.Manager
-	frpUserOut   string
-	npsClientOut string
-	configOut    string
-	embedded     bool
-	listenAddr   string
-	logs         *logBuffer
-	runtime      core.RuntimeConfig
+	store         *core.Store
+	sessions      *sessionStore
+	frpUserOut    string
+	npsClientOut  string
+	configOut     string
+	embedded      bool
+	listenAddr    string
+	logs          *logBuffer
+	agentPushPort int
+	remoteMu      sync.RWMutex
+	remoteClients map[string][]integrated.ClientStatus
+	runtime       core.RuntimeConfig
 }
 
-type diagnosticCheck struct {
-	Name     string `json:"name"`
-	Engine   string `json:"engine,omitempty"`
-	Protocol string `json:"protocol"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Open     bool   `json:"open"`
-	Message  string `json:"message,omitempty"`
+type agentSyncBundle struct {
+	GeneratedAt time.Time     `json:"generatedAt"`
+	Node        core.Node     `json:"node"`
+	Users       []core.User   `json:"users"`
+	Tunnels     []core.Tunnel `json:"tunnels"`
+}
+
+type clientBootstrapResponse struct {
+	GeneratedAt time.Time             `json:"generatedAt"`
+	User        core.PublicUser       `json:"user"`
+	Secrets     clientBootstrapSecret `json:"secrets"`
+	Nodes       []clientBootstrapNode `json:"nodes"`
+}
+
+type clientBootstrapSecret struct {
+	FRPToken     string `json:"frpToken,omitempty"`
+	NPSVerifyKey string `json:"npsVerifyKey,omitempty"`
+}
+
+type clientBootstrapNode struct {
+	ID      string             `json:"id"`
+	Name    string             `json:"name"`
+	Runtime core.RuntimeConfig `json:"runtime"`
+	Tunnels []core.Tunnel      `json:"tunnels"`
 }
 
 type resourceUsage struct {
@@ -200,6 +200,7 @@ type resourceUsage struct {
 }
 
 type clientRuntimeStatus struct {
+	NodeID         string `json:"nodeId,omitempty"`
 	UserName       string `json:"userName"`
 	Engine         string `json:"engine"`
 	State          string `json:"state"`
@@ -281,7 +282,7 @@ func randomToken() string {
 
 func (a *apiServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api/login" {
+		if !strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api/login" || strings.HasPrefix(r.URL.Path, "/api/agent/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -469,6 +470,7 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	a.pushRemoteNodesAsync()
 	writeJSON(w, http.StatusOK, user)
 }
 
@@ -489,7 +491,242 @@ func (a *apiServer) deleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	a.pushRemoteNodesAsync()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *apiServer) listNodes(w http.ResponseWriter, r *http.Request) {
+	if isAdmin(requestUser(r)) {
+		writeJSON(w, http.StatusOK, a.store.ListNodes())
+		return
+	}
+	nodes := make([]core.Node, 0)
+	for _, node := range a.store.ListNodes() {
+		if node.ID == core.DefaultNodeID || !node.Enabled {
+			continue
+		}
+		node.Token = ""
+		nodes = append(nodes, node)
+	}
+	writeJSON(w, http.StatusOK, nodes)
+}
+
+func (a *apiServer) upsertNode(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	var req struct {
+		ID          string             `json:"id"`
+		Name        string             `json:"name"`
+		Token       string             `json:"token"`
+		PublicAddr  string             `json:"publicAddr"`
+		Enabled     *bool              `json:"enabled"`
+		FRPEnabled  *bool              `json:"frpEnabled"`
+		NPSEnabled  *bool              `json:"npsEnabled"`
+		PortPool    string             `json:"portPool"`
+		PortPools   []core.PortRange   `json:"portPools"`
+		DomainPool  string             `json:"domainPool"`
+		DomainPools []string           `json:"domainPools"`
+		Runtime     core.RuntimeConfig `json:"runtime"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	pools := req.PortPools
+	if req.PortPool != "" {
+		parsed, err := core.ParsePortRanges(req.PortPool)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		pools = parsed
+	}
+	domainPools := req.DomainPools
+	if req.DomainPool != "" {
+		parsed, err := core.ParseDomainPools(req.DomainPool)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		domainPools = parsed
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	npsEnabled := true
+	if req.NPSEnabled != nil {
+		npsEnabled = *req.NPSEnabled
+	}
+	node, err := a.store.UpsertNode(core.Node{
+		ID:          req.ID,
+		Name:        req.Name,
+		Token:       req.Token,
+		PublicAddr:  req.PublicAddr,
+		Enabled:     enabled,
+		FRPEnabled:  false,
+		NPSEnabled:  npsEnabled,
+		PortPools:   pools,
+		DomainPools: domainPools,
+		Runtime:     req.Runtime,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	a.pushRemoteNodesAsync()
+	writeJSON(w, http.StatusOK, node)
+}
+
+func (a *apiServer) deleteNode(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/nodes/")
+	if id == "" || strings.Contains(id, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	if err := a.store.DeleteNode(id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	a.pushRemoteNodesAsync()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *apiServer) agentBundle(w http.ResponseWriter, r *http.Request) {
+	nodeID := strings.TrimSpace(r.URL.Query().Get("node"))
+	if nodeID == "" {
+		writeErrorText(w, http.StatusBadRequest, "node is required")
+		return
+	}
+	node, ok := a.store.GetNode(nodeID)
+	if !ok || !node.Enabled {
+		writeErrorText(w, http.StatusNotFound, "node not found or disabled")
+		return
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if token == "" || node.Token == "" || token != node.Token {
+		writeErrorText(w, http.StatusUnauthorized, "invalid node token")
+		return
+	}
+	writeJSON(w, http.StatusOK, a.bundleForNode(node))
+}
+
+func (a *apiServer) bundleForNode(node core.Node) agentSyncBundle {
+	tunnels := filterTunnelsByNode(a.store.ListTunnels(""), node.ID)
+	users := usersForTunnels(a.store.Users(), tunnels)
+	return agentSyncBundle{
+		GeneratedAt: time.Now().UTC(),
+		Node:        node,
+		Users:       users,
+		Tunnels:     tunnels,
+	}
+}
+
+func (a *apiServer) pushRemoteNodesAsync() {
+	go a.pushRemoteNodes(context.Background())
+}
+
+func (a *apiServer) pushRemoteNodesLoop(ctx context.Context) {
+	time.Sleep(5 * time.Second)
+	a.pushRemoteNodes(ctx)
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.pushRemoteNodes(ctx)
+		}
+	}
+}
+
+func (a *apiServer) pushRemoteNodes(ctx context.Context) {
+	for _, node := range a.store.ListNodes() {
+		if node.ID == core.DefaultNodeID || !node.Enabled || node.Token == "" || strings.TrimSpace(node.PublicAddr) == "" {
+			continue
+		}
+		if err := a.pushRemoteNode(ctx, node); err != nil {
+			log.Printf("push node %s failed: %v", node.ID, err)
+			a.setRemoteClientStatuses(node.ID, nil)
+			if statusErr := a.store.UpdateNodeStatus(node.ID, false, err.Error()); statusErr != nil {
+				log.Printf("update node %s status failed: %v", node.ID, statusErr)
+			}
+			continue
+		}
+		if err := a.store.UpdateNodeStatus(node.ID, true, ""); err != nil {
+			log.Printf("update node %s status failed: %v", node.ID, err)
+		}
+	}
+}
+
+func (a *apiServer) pushRemoteNode(ctx context.Context, node core.Node) error {
+	bundle := a.bundleForNode(node)
+	body, err := json.Marshal(bundle)
+	if err != nil {
+		return err
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, agentApplyURL(node.PublicAddr, a.agentPushPort), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+node.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("agent returned %s", resp.Status)
+	}
+	var applyResp struct {
+		Clients []integrated.ClientStatus `json:"clients"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&applyResp); err != nil && err != io.EOF {
+		return err
+	}
+	a.setRemoteClientStatuses(node.ID, applyResp.Clients)
+	log.Printf("pushed node=%s users=%d tunnels=%d", node.ID, len(bundle.Users), len(bundle.Tunnels))
+	return nil
+}
+
+func (a *apiServer) setRemoteClientStatuses(nodeID string, statuses []integrated.ClientStatus) {
+	a.remoteMu.Lock()
+	defer a.remoteMu.Unlock()
+	if len(statuses) == 0 {
+		delete(a.remoteClients, nodeID)
+		return
+	}
+	cp := append([]integrated.ClientStatus(nil), statuses...)
+	a.remoteClients[nodeID] = cp
+}
+
+func (a *apiServer) allClientStatuses() []integrated.ClientStatus {
+	statuses := runtimeClientStatuses()
+	a.remoteMu.RLock()
+	defer a.remoteMu.RUnlock()
+	for _, nodeStatuses := range a.remoteClients {
+		statuses = append(statuses, nodeStatuses...)
+	}
+	return statuses
+}
+
+func agentApplyURL(publicAddr string, port int) string {
+	addr := strings.TrimRight(strings.TrimSpace(publicAddr), "/")
+	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+		return addr + "/api/agent/apply"
+	}
+	if strings.Contains(addr, ":") && !strings.Contains(addr, "]") {
+		return "http://" + addr + "/api/agent/apply"
+	}
+	return "http://" + net.JoinHostPort(addr, strconv.Itoa(port)) + "/api/agent/apply"
 }
 
 func (a *apiServer) listTunnels(w http.ResponseWriter, r *http.Request) {
@@ -520,6 +757,7 @@ func (a *apiServer) createTunnel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	a.pushRemoteNodesAsync()
 	writeJSON(w, http.StatusOK, tunnel)
 }
 
@@ -559,6 +797,7 @@ func (a *apiServer) updateTunnel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	a.pushRemoteNodesAsync()
 	writeJSON(w, http.StatusOK, tunnel)
 }
 
@@ -590,17 +829,21 @@ func (a *apiServer) deleteTunnel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	a.pushRemoteNodesAsync()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (a *apiServer) runtimeInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"client":         a.runtime,
-		"engines":        a.engines.Config(),
 		"frpUsersPath":   a.frpUserOut,
 		"npsClientsPath": a.npsClientOut,
 		"configOutDir":   a.configOut,
-	})
+	}
+	if isAdmin(requestUser(r)) {
+		resp["nodes"] = a.store.ListNodes()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (a *apiServer) diagnostics(w http.ResponseWriter, r *http.Request) {
@@ -628,9 +871,6 @@ func (a *apiServer) diagnostics(w http.ResponseWriter, r *http.Request) {
 		"generatedAt": time.Now().UTC(),
 		"resources":   resourceUsageFor(users, tunnels),
 	}
-	if isAdmin(current) {
-		resp["checks"] = a.listenerChecks()
-	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -644,7 +884,58 @@ func (a *apiServer) listClients(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"generatedAt": time.Now().UTC(),
-		"clients":     clientStatusesFor(users, tunnels, a.embedded, runtimeClientStatuses()),
+		"clients":     clientStatusesFor(users, tunnels, a.embedded, a.allClientStatuses()),
+	})
+}
+
+func (a *apiServer) clientBootstrap(w http.ResponseWriter, r *http.Request) {
+	current := requestUser(r)
+	userName := current.Name
+	if isAdmin(current) && r.URL.Query().Get("user") != "" {
+		userName = r.URL.Query().Get("user")
+	}
+	user, ok := a.store.GetUser(userName)
+	if !ok || !user.Enabled {
+		writeErrorText(w, http.StatusNotFound, "user not found")
+		return
+	}
+	tunnels := a.store.ListTunnels(user.Name)
+	nodeByID := map[string]core.Node{}
+	for _, node := range a.store.ListNodes() {
+		nodeByID[node.ID] = node
+	}
+	grouped := map[string][]core.Tunnel{}
+	for _, tunnel := range tunnels {
+		if !tunnel.Enabled {
+			continue
+		}
+		nodeID := tunnel.NodeID
+		if nodeID == "" {
+			nodeID = core.DefaultNodeID
+		}
+		grouped[nodeID] = append(grouped[nodeID], tunnel)
+	}
+	nodes := make([]clientBootstrapNode, 0, len(grouped))
+	for nodeID, nodeTunnels := range grouped {
+		node, ok := nodeByID[nodeID]
+		if !ok || !node.Enabled {
+			continue
+		}
+		nodes = append(nodes, clientBootstrapNode{
+			ID:      node.ID,
+			Name:    node.Name,
+			Runtime: runtimeForNode(node, a.runtime),
+			Tunnels: nodeTunnels,
+		})
+	}
+	writeJSON(w, http.StatusOK, clientBootstrapResponse{
+		GeneratedAt: time.Now().UTC(),
+		User:        core.Public(user),
+		Secrets: clientBootstrapSecret{
+			FRPToken:     user.FRPToken,
+			NPSVerifyKey: user.NPSVerifyKey,
+		},
+		Nodes: nodes,
 	})
 }
 
@@ -656,10 +947,10 @@ func (a *apiServer) listAvailability(w http.ResponseWriter, r *http.Request) {
 		users = filterUsersByName(users, current.Name)
 		tunnels = filterTunnelsByUser(tunnels, current.Name)
 	}
-	clients := clientStatusesFor(users, tunnels, a.embedded, runtimeClientStatuses())
+	liveClients := a.allClientStatuses()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"generatedAt":  time.Now().UTC(),
-		"availability": availabilityFor(tunnels, clients, a.runtime),
+		"availability": availabilityFor(tunnels, liveClients, a.runtimeForTunnel),
 	})
 }
 
@@ -684,76 +975,75 @@ func filterTunnelsByUser(tunnels []core.Tunnel, name string) []core.Tunnel {
 	return out
 }
 
-func (a *apiServer) listenerChecks() []diagnosticCheck {
-	checks := []diagnosticCheck{
-		listenerCheck("后台", "", "tcp", portFromListenAddr(a.listenAddr)),
-		listenerCheck("FRP 客户端接入", core.EngineFRP, "tcp", a.runtime.FRPServerPort),
-		listenerCheck("FRP HTTP", core.EngineFRP, "tcp", a.runtime.FRPHTTPPort),
-		listenerCheck("FRP HTTPS", core.EngineFRP, "tcp", a.runtime.FRPHTTPSPort),
-		listenerCheck("NPS bridge", core.EngineNPS, "tcp", a.runtime.NPSServerPort),
-		listenerCheck("NPS HTTP", core.EngineNPS, "tcp", a.runtime.NPSHTTPProxyPort),
-		listenerCheck("NPS HTTPS", core.EngineNPS, "tcp", a.runtime.NPSHTTPSPort),
+func filterTunnelsByNode(tunnels []core.Tunnel, nodeID string) []core.Tunnel {
+	if nodeID == "" {
+		nodeID = core.DefaultNodeID
 	}
-	out := checks[:0]
-	for _, check := range checks {
-		if check.Port > 0 {
-			out = append(out, check)
+	out := make([]core.Tunnel, 0)
+	for _, tunnel := range tunnels {
+		current := tunnel.NodeID
+		if current == "" {
+			current = core.DefaultNodeID
+		}
+		if current == nodeID {
+			out = append(out, tunnel)
 		}
 	}
-	var wg sync.WaitGroup
-	for i := range out {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			out[i] = probeListener(out[i])
-		}(i)
-	}
-	wg.Wait()
 	return out
 }
 
-func portFromListenAddr(addr string) int {
-	if addr == "" {
-		return 0
+func usersForTunnels(users []core.User, tunnels []core.Tunnel) []core.User {
+	needed := map[string]bool{}
+	for _, tunnel := range tunnels {
+		needed[tunnel.UserName] = true
 	}
-	if port, err := strconv.Atoi(strings.TrimPrefix(addr, ":")); err == nil {
-		return port
+	out := make([]core.User, 0, len(needed))
+	for _, user := range users {
+		if needed[user.Name] {
+			out = append(out, user)
+		}
 	}
-	_, portText, err := net.SplitHostPort(addr)
-	if err != nil {
-		return 0
-	}
-	port, err := strconv.Atoi(portText)
-	if err != nil {
-		return 0
-	}
-	return port
+	return out
 }
 
-func listenerCheck(name, engineName, protocol string, port int) diagnosticCheck {
-	return diagnosticCheck{
-		Name:     name,
-		Engine:   engineName,
-		Protocol: protocol,
-		Host:     "127.0.0.1",
-		Port:     port,
+func runtimeForNode(node core.Node, fallback core.RuntimeConfig) core.RuntimeConfig {
+	cfg := fallback
+	if node.PublicAddr != "" {
+		cfg.ServerAddr = node.PublicAddr
 	}
+	if node.Runtime.ServerAddr != "" {
+		cfg.ServerAddr = node.Runtime.ServerAddr
+	}
+	if node.Runtime.FRPServerPort > 0 {
+		cfg.FRPServerPort = node.Runtime.FRPServerPort
+	}
+	if node.Runtime.FRPHTTPPort > 0 {
+		cfg.FRPHTTPPort = node.Runtime.FRPHTTPPort
+	}
+	if node.Runtime.FRPHTTPSPort > 0 {
+		cfg.FRPHTTPSPort = node.Runtime.FRPHTTPSPort
+	}
+	if node.Runtime.NPSServerPort > 0 {
+		cfg.NPSServerPort = node.Runtime.NPSServerPort
+	}
+	if node.Runtime.NPSHTTPProxyPort > 0 {
+		cfg.NPSHTTPProxyPort = node.Runtime.NPSHTTPProxyPort
+	}
+	if node.Runtime.NPSHTTPSPort > 0 {
+		cfg.NPSHTTPSPort = node.Runtime.NPSHTTPSPort
+	}
+	return cfg
 }
 
-func probeListener(check diagnosticCheck) diagnosticCheck {
-	if check.Port <= 0 {
-		check.Message = "未配置端口"
-		return check
+func (a *apiServer) runtimeForTunnel(tunnel core.Tunnel) core.RuntimeConfig {
+	nodeID := tunnel.NodeID
+	if nodeID == "" {
+		nodeID = core.DefaultNodeID
 	}
-	conn, err := net.DialTimeout(check.Protocol, net.JoinHostPort(check.Host, strconv.Itoa(check.Port)), 250*time.Millisecond)
-	if err != nil {
-		check.Message = err.Error()
-		return check
+	if node, ok := a.store.GetNode(nodeID); ok {
+		return runtimeForNode(node, a.runtime)
 	}
-	check.Open = true
-	check.Message = "listening"
-	_ = conn.Close()
-	return check
+	return a.runtime
 }
 
 func resourceUsageFor(users []core.User, tunnels []core.Tunnel) []resourceUsage {
@@ -820,6 +1110,9 @@ func resourceUsageFor(users []core.User, tunnels []core.Tunnel) []resourceUsage 
 func runtimeClientStatuses() []integrated.ClientStatus {
 	statuses := integrated.FRPClientStatuses()
 	statuses = append(statuses, integrated.NPSClientStatuses()...)
+	for i := range statuses {
+		statuses[i].NodeID = core.DefaultNodeID
+	}
 	return statuses
 }
 
@@ -864,6 +1157,7 @@ func buildClientRuntimeStatus(userName, engineName string, embedded bool, live i
 		state = "offline"
 	}
 	status := clientRuntimeStatus{
+		NodeID:       live.NodeID,
 		UserName:     userName,
 		Engine:       engineName,
 		State:        state,
@@ -909,11 +1203,7 @@ func statusTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-func availabilityFor(tunnels []core.Tunnel, clients []clientRuntimeStatus, runtime core.RuntimeConfig) []tunnelAvailability {
-	clientByTunnelKey := map[string]clientRuntimeStatus{}
-	for _, client := range clients {
-		clientByTunnelKey[statusKey(client.UserName, client.Engine)] = client
-	}
+func availabilityFor(tunnels []core.Tunnel, live []integrated.ClientStatus, runtimeFor func(core.Tunnel) core.RuntimeConfig) []tunnelAvailability {
 	out := make([]tunnelAvailability, len(tunnels))
 	var wg sync.WaitGroup
 	for i, tunnel := range tunnels {
@@ -921,12 +1211,33 @@ func availabilityFor(tunnels []core.Tunnel, clients []clientRuntimeStatus, runti
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			client := clientByTunnelKey[statusKey(tunnel.UserName, tunnel.Engine)]
-			out[i] = checkTunnelAvailability(tunnel, client, runtime)
+			client := clientStatusForTunnel(tunnel, live)
+			out[i] = checkTunnelAvailability(tunnel, client, runtimeFor(tunnel))
 		}()
 	}
 	wg.Wait()
 	return out
+}
+
+func clientStatusForTunnel(tunnel core.Tunnel, live []integrated.ClientStatus) clientRuntimeStatus {
+	nodeID := tunnel.NodeID
+	if nodeID == "" {
+		nodeID = core.DefaultNodeID
+	}
+	var best integrated.ClientStatus
+	for _, status := range live {
+		if status.UserName != tunnel.UserName || status.Engine != tunnel.Engine {
+			continue
+		}
+		if status.NodeID != "" && status.NodeID != nodeID {
+			continue
+		}
+		if best.UserName == "" || betterClientStatus(status, best) {
+			best = status
+		}
+	}
+	count := clientTunnelCount{total: 1}
+	return buildClientRuntimeStatus(tunnel.UserName, tunnel.Engine, nodeID == core.DefaultNodeID, best, count)
 }
 
 func checkTunnelAvailability(tunnel core.Tunnel, client clientRuntimeStatus, runtime core.RuntimeConfig) tunnelAvailability {
@@ -980,13 +1291,14 @@ func summarizeTunnelAvailability(clientState string, entry tunnelAvailabilityPro
 }
 
 func probeTunnelEntry(tunnel core.Tunnel, runtime core.RuntimeConfig) tunnelAvailabilityProbe {
+	host := probeHost(runtime.ServerAddr)
 	switch tunnel.Mode {
 	case "tcp", "socks5":
-		return probeTCPEntry(tunnel.RemotePort)
+		return probeTCPEntry(host, tunnel.RemotePort)
 	case "udp":
 		return tunnelAvailabilityProbe{
 			State:   "unknown",
-			Target:  net.JoinHostPort("127.0.0.1", strconv.Itoa(tunnel.RemotePort)) + "/udp",
+			Target:  net.JoinHostPort(host, strconv.Itoa(tunnel.RemotePort)) + "/udp",
 			Message: "UDP 入口无法可靠主动探测，请结合客户端在线和业务流量确认",
 		}
 	case "http", "https":
@@ -996,13 +1308,13 @@ func probeTunnelEntry(tunnel core.Tunnel, runtime core.RuntimeConfig) tunnelAvai
 	}
 }
 
-func probeTCPEntry(port int) tunnelAvailabilityProbe {
-	target := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+func probeTCPEntry(host string, port int) tunnelAvailabilityProbe {
+	target := net.JoinHostPort(host, strconv.Itoa(port))
 	if port <= 0 {
 		return tunnelAvailabilityProbe{State: "down", Target: target, Message: "远程端口未配置"}
 	}
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", target, 350*time.Millisecond)
+	conn, err := net.DialTimeout("tcp", target, 1200*time.Millisecond)
 	latency := time.Since(start).Milliseconds()
 	if err != nil {
 		return tunnelAvailabilityProbe{State: "down", Target: target, Message: err.Error(), LatencyMS: latency}
@@ -1028,7 +1340,7 @@ func probeHTTPEntry(tunnel core.Tunnel, runtime core.RuntimeConfig) tunnelAvaila
 		return tunnelAvailabilityProbe{State: "down", Target: target, Message: "HTTP/HTTPS 入口端口未配置"}
 	}
 	scheme := tunnel.Mode
-	url := scheme + "://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/"
+	url := scheme + "://" + net.JoinHostPort(probeHost(runtime.ServerAddr), strconv.Itoa(port)) + "/"
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return tunnelAvailabilityProbe{State: "down", Target: target, Message: err.Error()}
@@ -1036,11 +1348,11 @@ func probeHTTPEntry(tunnel core.Tunnel, runtime core.RuntimeConfig) tunnelAvaila
 	req.Host = domain
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
-			Timeout: 350 * time.Millisecond,
+			Timeout: 1200 * time.Millisecond,
 		}).DialContext,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	client := &http.Client{Timeout: 800 * time.Millisecond, Transport: transport}
+	client := &http.Client{Timeout: 1800 * time.Millisecond, Transport: transport}
 	start := time.Now()
 	resp, err := client.Do(req)
 	latency := time.Since(start).Milliseconds()
@@ -1055,6 +1367,22 @@ func probeHTTPEntry(tunnel core.Tunnel, runtime core.RuntimeConfig) tunnelAvaila
 		message = "入口已响应，但上游返回 " + strconv.Itoa(resp.StatusCode)
 	}
 	return tunnelAvailabilityProbe{State: state, Target: target, Message: message, StatusCode: resp.StatusCode, LatencyMS: latency}
+}
+
+func probeHost(serverAddr string) string {
+	addr := strings.TrimSpace(serverAddr)
+	addr = strings.TrimPrefix(addr, "http://")
+	addr = strings.TrimPrefix(addr, "https://")
+	if slash := strings.Index(addr, "/"); slash >= 0 {
+		addr = addr[:slash]
+	}
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		addr = host
+	}
+	if addr == "" {
+		return "127.0.0.1"
+	}
+	return addr
 }
 
 func httpEntryPort(engineName, mode string, runtime core.RuntimeConfig) int {
@@ -1092,13 +1420,6 @@ func freeCount(total, used int) int {
 	return total - used
 }
 
-func (a *apiServer) engineStatuses(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
-		return
-	}
-	writeJSON(w, http.StatusOK, a.engines.Statuses())
-}
-
 func (a *apiServer) listLogs(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(w, r) {
 		return
@@ -1126,36 +1447,6 @@ func (a *apiServer) clearLogs(w http.ResponseWriter, r *http.Request) {
 	a.logs.clear()
 	log.Printf("logs cleared by %s", requestUser(r).Name)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
-}
-
-func (a *apiServer) engineAction(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(w, r) {
-		return
-	}
-	path := strings.TrimPrefix(r.URL.Path, "/api/engines/")
-	parts := strings.Split(path, "/")
-	if len(parts) != 2 {
-		http.NotFound(w, r)
-		return
-	}
-	var (
-		st  engine.Status
-		err error
-	)
-	switch parts[1] {
-	case "start":
-		st, err = a.engines.Start(parts[0])
-	case "stop":
-		st, err = a.engines.Stop(parts[0])
-	default:
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, st)
 }
 
 func (a *apiServer) syncFRPUsers(w http.ResponseWriter, r *http.Request) {
@@ -1221,7 +1512,7 @@ func (a *apiServer) syncEmbeddedNPS() error {
 	if !a.embedded {
 		return nil
 	}
-	return integrated.SyncNPSState(a.store.Users(), a.store.ListTunnels(""))
+	return integrated.SyncNPSState(a.store.Users(), filterTunnelsByNode(a.store.ListTunnels(""), core.DefaultNodeID))
 }
 
 func (a *apiServer) exportConfigs(w http.ResponseWriter, r *http.Request) {
@@ -1233,18 +1524,7 @@ func (a *apiServer) exportConfigs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	frpUsers, err := core.ExportFRPUsers(users)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
 	written := []string{}
-	frpUsersPath := filepath.Join(a.configOut, "frp-users.json")
-	if err := os.WriteFile(frpUsersPath, append(frpUsers, '\n'), 0o600); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	written = append(written, frpUsersPath)
 	npsClients, err := core.ExportNPSClients(users)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -1257,6 +1537,7 @@ func (a *apiServer) exportConfigs(w http.ResponseWriter, r *http.Request) {
 	}
 	written = append(written, npsClientsPath)
 
+	nodes := a.store.ListNodes()
 	for _, user := range users {
 		userDir := filepath.Join(a.configOut, "clients", user.Name)
 		if err := os.MkdirAll(userDir, 0o755); err != nil {
@@ -1264,15 +1545,6 @@ func (a *apiServer) exportConfigs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		tunnels := a.store.ListTunnels(user.Name)
-		frpc, err := core.RenderFRPC(user, tunnels, a.runtime)
-		if err == nil {
-			path := filepath.Join(userDir, "frpc.toml")
-			if err := os.WriteFile(path, []byte(frpc), 0o600); err != nil {
-				writeError(w, http.StatusInternalServerError, err)
-				return
-			}
-			written = append(written, path)
-		}
 		npc, err := core.RenderNPCCommand(user, a.runtime)
 		if err == nil {
 			path := filepath.Join(userDir, "npc-command.txt")
@@ -1282,9 +1554,30 @@ func (a *apiServer) exportConfigs(w http.ResponseWriter, r *http.Request) {
 			}
 			written = append(written, path)
 		}
+		for _, node := range nodes {
+			nodeTunnels := filterTunnelsByNode(tunnels, node.ID)
+			if len(nodeTunnels) == 0 {
+				continue
+			}
+			nodeDir := filepath.Join(userDir, node.ID)
+			if err := os.MkdirAll(nodeDir, 0o755); err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+			cfg := runtimeForNode(node, a.runtime)
+			npc, err := core.RenderNPCCommand(user, cfg)
+			if err == nil {
+				path := filepath.Join(nodeDir, "npc-command.txt")
+				if err := os.WriteFile(path, []byte(npc+"\n"), 0o600); err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				written = append(written, path)
+			}
+		}
 	}
 	readme := filepath.Join(a.configOut, "README.txt")
-	text := "Tunnel Control export\n\nfrp-users.json: copy or sync to frps userStore path.\nclients/<user>/frpc.toml: frpc client config for that user.\nclients/<user>/npc-command.txt: npc startup command for that user.\n"
+	text := "Tunnel Control export\n\nnps-clients.json: managed NPS client list.\nclients/<user>/npc-command.txt: npc startup command for that user.\n"
 	if err := os.WriteFile(readme, []byte(text), 0o600); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -1312,24 +1605,95 @@ func (a *apiServer) userConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	switch parts[1] {
 	case "frpc.toml":
-		cfg, err := core.RenderFRPC(*user, a.store.ListTunnels(user.Name), a.runtime)
+		tunnels := a.store.ListTunnels(user.Name)
+		cfg := a.runtime
+		if nodeID := r.URL.Query().Get("node"); nodeID != "" {
+			node, ok := a.store.GetNode(nodeID)
+			if !ok {
+				writeErrorText(w, http.StatusNotFound, "node not found")
+				return
+			}
+			cfg = runtimeForNode(node, a.runtime)
+			tunnels = filterTunnelsByNode(tunnels, node.ID)
+		}
+		cfgText, err := core.RenderFRPC(*user, tunnels, cfg)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte(cfg))
+		_, _ = w.Write([]byte(cfgText))
 	case "npc-command":
-		cmd, err := core.RenderNPCCommand(*user, a.runtime)
+		cfg := a.runtime
+		if nodeID := r.URL.Query().Get("node"); nodeID != "" {
+			node, ok := a.store.GetNode(nodeID)
+			if !ok {
+				writeErrorText(w, http.StatusNotFound, "node not found")
+				return
+			}
+			cfg = runtimeForNode(node, a.runtime)
+		}
+		cmd, err := core.RenderNPCCommand(*user, cfg)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte(cmd + "\n"))
+	case "tunnel-client":
+		controlURL := requestBaseURL(r)
+		text := renderTunnelClientHelp(user.Name, controlURL)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(text))
+	case "nps-key":
+		if user.NPSVerifyKey == "" {
+			writeErrorText(w, http.StatusNotFound, "nps key not found")
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte(user.NPSVerifyKey + "\n"))
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func requestBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwarded != "" {
+		scheme = strings.Split(forwarded, ",")[0]
+	}
+	host := r.Host
+	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		host = strings.Split(forwardedHost, ",")[0]
+	}
+	return scheme + "://" + host
+}
+
+func renderTunnelClientHelp(userName, controlURL string) string {
+	return fmt.Sprintf(`docker compose:
+
+services:
+  tunnel-client:
+    image: darkver8/tunnel-port:latest
+    container_name: tunnel-client
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["/usr/local/bin/tunnel-client"]
+    environment:
+      CONTROL_URL: %s
+      TUNNEL_USER: %s
+      TUNNEL_PASSWORD: 填写该用户的后台登录密码
+
+直接运行:
+
+tunnel-client -server %s -user %s -password 填写该用户的后台登录密码
+
+说明:
+用户只需要连接总控。tunnel-client 会自动从总控读取该用户的节点和 NPS 隧道，并自动连接对应节点。
+`, controlURL, userName, controlURL, userName)
 }
 
 func (a *apiServer) exportFRPUsers(w http.ResponseWriter, r *http.Request) {

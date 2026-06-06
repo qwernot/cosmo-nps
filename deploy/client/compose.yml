@@ -1,0 +1,11 @@
+services:
+  tunnel-client:
+    image: darkver8/tunnel-port:latest
+    container_name: tunnel-client
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["/usr/local/bin/tunnel-client"]
+    environment:
+      CONTROL_URL: ${CONTROL_URL}
+      TUNNEL_USER: ${TUNNEL_USER}
+      TUNNEL_PASSWORD: ${TUNNEL_PASSWORD}

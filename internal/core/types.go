@@ -14,6 +14,8 @@ const (
 
 	RoleAdmin = "admin"
 	RoleUser  = "user"
+
+	DefaultNodeID = "local"
 )
 
 type PortRange struct {
@@ -218,9 +220,37 @@ type PublicUser struct {
 	UpdatedAt       time.Time   `json:"updatedAt"`
 }
 
+type Node struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Token       string        `json:"token,omitempty"`
+	PublicAddr  string        `json:"publicAddr,omitempty"`
+	Enabled     bool          `json:"enabled"`
+	FRPEnabled  bool          `json:"frpEnabled"`
+	NPSEnabled  bool          `json:"npsEnabled"`
+	PortPools   []PortRange   `json:"portPools,omitempty"`
+	DomainPools []string      `json:"domainPools,omitempty"`
+	Runtime     RuntimeConfig `json:"runtime,omitempty"`
+	Status      NodeStatus    `json:"status,omitzero"`
+	CreatedAt   time.Time     `json:"createdAt"`
+	UpdatedAt   time.Time     `json:"updatedAt"`
+}
+
+type NodeStatus struct {
+	Online     bool      `json:"online"`
+	LastSeenAt time.Time `json:"lastSeenAt,omitzero"`
+	LastSyncAt time.Time `json:"lastSyncAt,omitzero"`
+	LastError  string    `json:"lastError,omitempty"`
+}
+
+func (s NodeStatus) IsZero() bool {
+	return !s.Online && s.LastSeenAt.IsZero() && s.LastSyncAt.IsZero() && s.LastError == ""
+}
+
 type Tunnel struct {
 	ID         string    `json:"id"`
 	UserName   string    `json:"userName"`
+	NodeID     string    `json:"nodeId,omitempty"`
 	Engine     string    `json:"engine"`
 	Mode       string    `json:"mode"`
 	RemotePort int       `json:"remotePort,omitempty"`
@@ -235,6 +265,7 @@ type Tunnel struct {
 
 type Database struct {
 	Users   map[string]*User   `json:"users"`
+	Nodes   map[string]*Node   `json:"nodes,omitempty"`
 	Tunnels map[string]*Tunnel `json:"tunnels"`
 }
 

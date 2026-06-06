@@ -34,15 +34,15 @@
         <div class="brand-mark">TC</div>
         <div>
           <div class="brand-title">Tunnel Control</div>
-          <div class="brand-subtitle">FRP + NPS</div>
+          <div class="brand-subtitle">NPS</div>
         </div>
       </div>
       <nav class="nav">
         <button class="nav-item active" data-view="dashboard">概览</button>
         <button class="nav-item admin-only" data-view="users">用户</button>
+        <button class="nav-item admin-only" data-view="nodes">节点</button>
         <button class="nav-item" data-view="tunnels">隧道</button>
         <button class="nav-item" data-view="configs">配置</button>
-        <button class="nav-item admin-only" data-view="engines">引擎</button>
         <button class="nav-item admin-only" data-view="logs">日志</button>
       </nav>
       <div class="runtime">
@@ -77,28 +77,20 @@
             <strong id="metric-tunnels">0</strong>
           </div>
           <div class="metric">
-            <span>FRP</span>
-            <strong id="metric-frp">0</strong>
+            <span>节点</span>
+            <strong id="metric-nodes">0</strong>
           </div>
           <div class="metric">
-            <span>NPS</span>
-            <strong id="metric-nps">0</strong>
+            <span>在线节点</span>
+            <strong id="metric-online-nodes">0</strong>
           </div>
         </div>
         <section class="panel diagnostics-panel">
           <div class="panel-head">
-            <h2>自检与资源</h2>
+            <h2>资源使用</h2>
             <span class="panel-note" id="diagnostics-time">-</span>
           </div>
-          <div class="diagnostics-grid">
-            <div>
-              <h3>监听自检</h3>
-              <div class="check-list" id="diagnostic-checks"></div>
-            </div>
-            <div>
-              <h3>资源使用</h3>
-              <div class="resource-list" id="diagnostic-resources"></div>
-            </div>
+          <div class="resource-list resource-grid" id="diagnostic-resources">
           </div>
         </section>
         <div class="split">
@@ -179,16 +171,10 @@
               域名池
               <input name="domainPool" placeholder="*.example.com,app.example.com" />
             </label>
-            <div class="form-grid">
-              <label>
-                FRP Token
-                <input name="frpToken" placeholder="自动生成" />
-              </label>
-              <label>
-                NPS VerifyKey
-                <input name="npsVerifyKey" placeholder="自动生成" />
-              </label>
-            </div>
+            <label>
+              NPS VerifyKey
+              <input name="npsVerifyKey" placeholder="自动生成" />
+            </label>
             <label class="checkline">
               <input name="enabled" type="checkbox" checked />
               启用
@@ -221,6 +207,91 @@
         </div>
       </section>
 
+      <section class="view" id="view-nodes">
+        <div class="workspace">
+          <form class="panel form-panel" id="node-form">
+            <div class="panel-head">
+              <h2>节点</h2>
+              <button class="button small secondary" type="button" id="clear-node-form">清空</button>
+            </div>
+            <div class="form-grid">
+              <label>
+                节点 ID
+                <input name="id" required placeholder="edge-a" />
+              </label>
+              <label>
+                节点名称
+                <input name="name" placeholder="香港节点" />
+              </label>
+            </div>
+            <label>
+              公网地址
+              <input name="publicAddr" placeholder="1.2.3.4 或 node.example.com" />
+            </label>
+            <label>
+              节点 Token
+              <input name="token" placeholder="留空自动生成" />
+            </label>
+            <div class="form-grid">
+              <label>
+                节点端口池
+                <input name="portPool" placeholder="10000-20000" />
+              </label>
+              <label>
+                节点域名池
+                <input name="domainPool" placeholder="*.example.com" />
+              </label>
+            </div>
+            <div class="form-grid">
+              <label>
+                NPS 端口
+                <input name="npsServerPort" type="number" min="0" placeholder="18024" />
+              </label>
+              <label>
+                NPS HTTP
+                <input name="npsHttpProxyPort" type="number" min="0" placeholder="9080" />
+              </label>
+            </div>
+            <label>
+              NPS HTTPS
+              <input name="npsHttpsProxyPort" type="number" min="0" placeholder="9443" />
+            </label>
+            <label class="checkline">
+              <input name="enabled" type="checkbox" checked />
+              启用节点
+            </label>
+            <label class="checkline">
+              <input name="npsEnabled" type="checkbox" checked />
+              启用 NPS
+            </label>
+            <button class="button" type="submit">保存节点</button>
+          </form>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>节点列表</h2>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>节点</th>
+                    <th>公网地址</th>
+                    <th>Token</th>
+                    <th>引擎</th>
+                    <th>端口池</th>
+                    <th>域名池</th>
+                    <th>状态</th>
+                    <th>同步</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="nodes-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section class="view" id="view-tunnels">
         <div class="workspace">
           <form class="panel form-panel" id="tunnel-form">
@@ -235,13 +306,11 @@
                 <select name="userName" required></select>
               </label>
               <label>
-                引擎
-                <select name="engine">
-                  <option value="frp">frp</option>
-                  <option value="nps">nps</option>
-                </select>
+                节点
+                <select name="nodeId" required></select>
               </label>
             </div>
+            <input name="engine" type="hidden" value="nps" />
             <div class="form-grid">
               <label>
                 模式
@@ -293,6 +362,7 @@
                   <tr>
                     <th>ID</th>
                     <th>用户</th>
+                    <th>节点</th>
                     <th>引擎</th>
                     <th>模式</th>
                     <th>端口/域名</th>
@@ -319,9 +389,14 @@
               用户
               <select id="config-user"></select>
             </label>
+            <label>
+              节点
+              <select id="config-node"></select>
+            </label>
             <div class="button-row">
-              <button class="button secondary" id="load-frpc">FRP 配置</button>
               <button class="button secondary" id="load-npc">NPS 命令</button>
+              <button class="button secondary" id="load-tunnel-client">统一客户端</button>
+              <button class="button secondary" id="load-nps-key">NPS 密钥</button>
               <button class="button" id="copy-config">复制</button>
             </div>
           </section>
@@ -330,36 +405,6 @@
               <h2 id="config-title">输出</h2>
             </div>
             <pre id="config-output"></pre>
-          </section>
-        </div>
-      </section>
-
-      <section class="view" id="view-engines">
-        <div class="split">
-          <section class="panel">
-            <div class="panel-head">
-              <h2>运行状态</h2>
-              <button class="button small secondary" id="refresh-engines">刷新</button>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>引擎</th>
-                    <th>配置</th>
-                    <th>进程</th>
-                    <th>端口</th>
-                  </tr>
-                </thead>
-                <tbody id="engines-table"></tbody>
-              </table>
-            </div>
-          </section>
-          <section class="panel output-panel">
-            <div class="panel-head">
-              <h2>运行参数</h2>
-            </div>
-            <pre id="engine-help"></pre>
           </section>
         </div>
       </section>

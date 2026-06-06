@@ -39,6 +39,7 @@ type FRPOptions struct {
 }
 
 type ClientStatus struct {
+	NodeID         string
 	UserName       string
 	Engine         string
 	ClientID       string
@@ -330,6 +331,10 @@ func SyncNPSState(users []core.User, tunnels []core.Tunnel) error {
 		if npsserver.Bridge != nil {
 			if _, ok := npsserver.RunList.Load(task.Id); ok {
 				_ = npsserver.StopServer(task.Id)
+			}
+			task.Status = true
+			if err := db.UpdateTask(task); err != nil {
+				return err
 			}
 			if err := npsserver.AddTask(task); err != nil {
 				return err
