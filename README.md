@@ -109,15 +109,16 @@ docker compose up -d
 Windows 用户可以使用桌面版：
 
 ```bash
-tunnel-client-gui.exe
+TunnelClient.exe
 ```
 
-这是 Windows 桌面客户端入口，会以独立 App 窗口打开，不是普通浏览器标签。填写总控地址、用户名、密码，点击“启动”即可保持客户端运行；窗口里可以查看最近日志，也可以停止客户端。
+这是 WinForms 桌面客户端，不是网页套壳。`TunnelClient.exe` 负责界面，旁边需要放 `tunnel-client-core.exe` 负责真实连接。填写总控地址、用户名、密码，点击“连接”即可保持客户端运行；窗口里可以查看最近日志，也可以停止客户端。
 
 构建 Windows GUI：
 
 ```bash
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-H windowsgui -s -w" -o tunnel-client-gui.exe ./cmd/tunnel-client
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o tunnel-client-core.exe ./cmd/tunnel-client
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /platform:x64 /out:TunnelClient.exe /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll cmd\tunnel-client-gui\TunnelClient.cs
 ```
 
 ### 命令行客户端
