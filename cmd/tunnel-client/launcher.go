@@ -229,6 +229,10 @@ func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
+		if browser := windowsAppBrowser(); browser != "" {
+			cmd = exec.Command(browser, "--app="+url, "--window-size=980,720")
+			break
+		}
 		cmd = exec.Command("cmd", "/c", "start", "", url)
 	case "darwin":
 		cmd = exec.Command("open", url)
@@ -236,6 +240,28 @@ func openBrowser(url string) {
 		cmd = exec.Command("xdg-open", url)
 	}
 	_ = cmd.Start()
+}
+
+func windowsAppBrowser() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	candidates := []string{
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("LocalAppData"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+	}
+	for _, path := range candidates {
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 func writeLauncherJSON(w http.ResponseWriter, value any) {
@@ -256,53 +282,97 @@ const launcherHTML = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tunnel Client</title>
   <style>
-    :root { color-scheme: light; font-family: "Segoe UI", Arial, sans-serif; color: #18212f; background: #eef3f8; }
+    :root { color-scheme: dark; font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif; color: #eef6ff; background: #08111f; }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-    main { width: min(920px, 100%); display: grid; gap: 16px; }
-    .panel { background: rgba(255,255,255,.82); border: 1px solid rgba(148,163,184,.35); border-radius: 12px; box-shadow: 0 18px 45px rgba(15,23,42,.12); padding: 22px; backdrop-filter: blur(12px); }
-    h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: 0; }
-    p { margin: 0; color: #64748b; }
-    form { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; margin-top: 18px; }
-    label { display: grid; gap: 7px; font-size: 13px; font-weight: 650; color: #334155; }
-    input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 11px 12px; font: inherit; background: #fff; }
+    body { margin: 0; min-height: 100vh; padding: 18px; background: radial-gradient(circle at 20% 12%, rgba(0, 214, 201, .24), transparent 28%), radial-gradient(circle at 85% 0%, rgba(68, 119, 255, .26), transparent 24%), linear-gradient(145deg, #08111f 0%, #0c1829 45%, #111827 100%); }
+    main { width: min(1080px, 100%); margin: 0 auto; display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; }
+    .hero { min-height: 676px; border: 1px solid rgba(125, 211, 252, .22); border-radius: 18px; padding: 24px; background: linear-gradient(155deg, rgba(14, 165, 233, .22), rgba(15, 23, 42, .86) 48%, rgba(20, 184, 166, .16)); box-shadow: 0 28px 80px rgba(0, 0, 0, .38); position: relative; overflow: hidden; }
+    .hero::after { content: ""; position: absolute; inset: auto -30px -65px 24px; height: 170px; background: linear-gradient(90deg, rgba(45, 212, 191, .22), rgba(96, 165, 250, .16)); filter: blur(2px); transform: skewY(-8deg); }
+    .brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
+    .mark { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(145deg, #22d3ee, #2563eb); box-shadow: 0 16px 30px rgba(37, 99, 235, .45); font-weight: 900; color: white; }
+    h1 { margin: 0; font-size: 25px; letter-spacing: 0; }
+    .sub { margin: 4px 0 0; color: #9fb3ca; font-size: 13px; }
+    .status-card { position: relative; z-index: 1; margin-top: 34px; padding: 18px; border-radius: 16px; background: rgba(8, 18, 33, .56); border: 1px solid rgba(148, 163, 184, .18); }
+    .status { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 999px; background: rgba(148, 163, 184, .14); color: #cbd5e1; font-size: 13px; font-weight: 800; }
+    .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; box-shadow: 0 0 0 5px rgba(148, 163, 184, .12); }
+    .status.online { background: rgba(34, 197, 94, .16); color: #bbf7d0; }
+    .status.online::before { background: #22c55e; box-shadow: 0 0 0 5px rgba(34, 197, 94, .15); }
+    .metric { margin-top: 18px; display: grid; gap: 10px; }
+    .metric div { display: flex; justify-content: space-between; color: #b6c6d8; font-size: 13px; }
+    .metric strong { color: #f8fafc; }
+    .panel { border: 1px solid rgba(148, 163, 184, .22); border-radius: 18px; background: rgba(15, 23, 42, .78); box-shadow: 0 24px 70px rgba(0, 0, 0, .32); backdrop-filter: blur(14px); }
+    .config { padding: 22px; }
+    .panel-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 18px; }
+    h2 { margin: 0; font-size: 18px; letter-spacing: 0; }
+    .hint { color: #94a3b8; font-size: 12px; }
+    form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    label { display: grid; gap: 7px; font-size: 12px; font-weight: 800; color: #cbd5e1; }
+    input { width: 100%; border: 1px solid rgba(148, 163, 184, .26); border-radius: 11px; padding: 12px 13px; font: inherit; color: #f8fafc; background: rgba(2, 8, 23, .52); outline: none; }
+    input:focus { border-color: rgba(34, 211, 238, .78); box-shadow: 0 0 0 4px rgba(34, 211, 238, .12); }
     .wide { grid-column: 1 / -1; }
-    .actions { display: flex; gap: 10px; align-items: center; grid-column: 1 / -1; }
-    button { border: 0; border-radius: 8px; padding: 11px 16px; font-weight: 750; cursor: pointer; background: #2563eb; color: white; }
-    button.secondary { background: #e2e8f0; color: #1e293b; }
-    button.danger { background: #dc2626; }
-    .status { margin-left: auto; padding: 7px 10px; border-radius: 999px; background: #e2e8f0; color: #475569; font-size: 13px; }
-    .status.online { background: #dcfce7; color: #166534; }
-    pre { margin: 0; min-height: 260px; max-height: 420px; overflow: auto; background: #0f172a; color: #dbeafe; border-radius: 10px; padding: 14px; font: 12px/1.55 Consolas, monospace; white-space: pre-wrap; }
-    @media (max-width: 720px) { form { grid-template-columns: 1fr; } body { padding: 12px; } }
+    .actions { display: flex; gap: 10px; align-items: center; grid-column: 1 / -1; padding-top: 4px; }
+    button { border: 0; border-radius: 11px; padding: 12px 18px; font-weight: 900; cursor: pointer; color: white; background: linear-gradient(135deg, #06b6d4, #2563eb); box-shadow: 0 14px 28px rgba(37, 99, 235, .28); }
+    button.secondary { background: rgba(148, 163, 184, .18); color: #dbeafe; box-shadow: none; }
+    button.danger { background: linear-gradient(135deg, #fb7185, #dc2626); box-shadow: 0 14px 26px rgba(220, 38, 38, .18); }
+    .content { display: grid; gap: 16px; }
+    .logs-panel { overflow: hidden; }
+    .logs-head { padding: 16px 18px; border-bottom: 1px solid rgba(148, 163, 184, .16); display: flex; align-items: center; justify-content: space-between; }
+    pre { margin: 0; min-height: 360px; max-height: 450px; overflow: auto; background: rgba(2, 6, 23, .84); color: #bfdbfe; padding: 16px 18px; font: 12px/1.6 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; }
+    @media (max-width: 880px) { main { grid-template-columns: 1fr; } .hero { min-height: auto; } }
   </style>
 </head>
 <body>
   <main>
-    <section class="panel">
-      <h1>Tunnel Client</h1>
-      <p>填写总控账号后启动，客户端会自动连接该用户的 NPS 节点。</p>
-      <form id="form">
-        <label class="wide">总控地址 <input name="controlUrl" placeholder="http://192.168.6.64:8088" required /></label>
-        <label>用户名 <input name="user" required /></label>
-        <label>密码 <input name="password" type="password" required /></label>
-        <label>刷新间隔 <input name="refresh" value="30s" /></label>
-        <div class="actions">
-          <button type="submit">启动</button>
-          <button type="button" class="danger" id="stop">停止</button>
-          <button type="button" class="secondary" id="reload">刷新</button>
-          <span class="status" id="status">未运行</span>
+    <aside class="hero">
+      <div class="brand">
+        <div class="mark">TC</div>
+        <div>
+          <h1>Tunnel Client</h1>
+          <p class="sub">NPS 云穿透客户端</p>
         </div>
-      </form>
-    </section>
-    <section class="panel">
-      <pre id="logs">等待启动...</pre>
+      </div>
+      <div class="status-card">
+        <span class="status" id="status">未运行</span>
+        <div class="metric">
+          <div><span>总控</span><strong id="server-label">-</strong></div>
+          <div><span>账号</span><strong id="user-label">-</strong></div>
+          <div><span>模式</span><strong>自动节点</strong></div>
+        </div>
+      </div>
+    </aside>
+    <section class="content">
+      <section class="panel config">
+        <div class="panel-head">
+          <h2>连接配置</h2>
+          <span class="hint">填写后点击启动</span>
+        </div>
+        <form id="form">
+          <label class="wide">总控地址 <input name="controlUrl" placeholder="http://192.168.6.64:8088" required /></label>
+          <label>用户名 <input name="user" required /></label>
+          <label>密码 <input name="password" type="password" required /></label>
+          <label>刷新间隔 <input name="refresh" value="30s" /></label>
+          <div class="actions">
+            <button type="submit">启动连接</button>
+            <button type="button" class="danger" id="stop">停止</button>
+            <button type="button" class="secondary" id="reload">刷新</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel logs-panel">
+        <div class="logs-head">
+          <h2>运行日志</h2>
+          <span class="hint">最近 300 条</span>
+        </div>
+        <pre id="logs">等待启动...</pre>
+      </section>
     </section>
   </main>
   <script>
     const form = document.querySelector("#form");
     const statusEl = document.querySelector("#status");
     const logsEl = document.querySelector("#logs");
+    const serverLabel = document.querySelector("#server-label");
+    const userLabel = document.querySelector("#user-label");
     const api = async (path, options = {}) => {
       const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
@@ -312,6 +382,8 @@ const launcherHTML = `<!doctype html>
       form.controlUrl.value = data.config?.controlUrl || "";
       form.user.value = data.config?.user || "";
       form.refresh.value = data.config?.refresh || "30s";
+      serverLabel.textContent = data.config?.controlUrl || "-";
+      userLabel.textContent = data.config?.user || "-";
       statusEl.textContent = data.running ? "运行中" : "未运行";
       statusEl.classList.toggle("online", Boolean(data.running));
       logsEl.textContent = (data.logs || []).join("\n") || "等待启动...";
