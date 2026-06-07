@@ -48,37 +48,61 @@ func main() {
 	username := flag.String("user", getenv("TUNNEL_USER", ""), "control panel username")
 	password := flag.String("password", getenv("TUNNEL_PASSWORD", ""), "control panel password")
 	refresh := flag.Duration("refresh", 30*time.Second, "bootstrap refresh interval")
+	gui := flag.Bool("gui", false, "start local browser launcher UI")
+	noGUI := flag.Bool("no-gui", false, "disable launcher UI when credentials are missing")
+	uiAddr := flag.String("ui-addr", getenv("TUNNEL_CLIENT_UI_ADDR", "127.0.0.1:18090"), "launcher UI listen address")
 	flag.Parse()
 
 	if *username == "" || *password == "" {
-		log.Fatal("TUNNEL_USER/TUNNEL_PASSWORD or -user/-password is required")
+		if *noGUI {
+			log.Fatal("TUNNEL_USER/TUNNEL_PASSWORD or -user/-password is required")
+		}
+		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *gui {
+		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if err := runClient(*controlURL, *username, *password, *refresh); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func runClient(controlURL, username, password string, refresh time.Duration) error {
+	if username == "" || password == "" {
+		return fmt.Errorf("TUNNEL_USER/TUNNEL_PASSWORD or -user/-password is required")
 	}
 	client, err := newControlClient()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	if err := loginControl(client, *controlURL, *username, *password); err != nil {
-		log.Fatal(err)
+	if err := loginControl(client, controlURL, username, password); err != nil {
+		return err
 	}
-	log.Printf("logged in to %s as %s", strings.TrimRight(*controlURL, "/"), *username)
+	log.Printf("logged in to %s as %s", strings.TrimRight(controlURL, "/"), username)
 
 	startedNPS := map[string]bool{}
-	if err := syncAndStart(client, *controlURL, startedNPS); err != nil {
+	if err := syncAndStart(client, controlURL, startedNPS); err != nil {
 		log.Printf("initial sync failed: %v", err)
 	}
-	ticker := time.NewTicker(*refresh)
+	ticker := time.NewTicker(refresh)
 	defer ticker.Stop()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	for {
 		select {
 		case <-ticker.C:
-			if err := syncAndStart(client, *controlURL, startedNPS); err != nil {
+			if err := syncAndStart(client, controlURL, startedNPS); err != nil {
 				log.Printf("sync failed: %v", err)
 			}
 		case <-stop:
 			log.Printf("stopping tunnel-client")
-			return
+			return nil
 		}
 	}
 }

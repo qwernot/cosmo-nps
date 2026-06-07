@@ -104,6 +104,38 @@ docker compose up -d
 
 用户侧运行 `tunnel-client`。用户只需要填写总控地址、后台用户名和后台密码，不需要知道具体应该连接哪个节点。
 
+### Windows GUI
+
+Windows 用户可以使用桌面版：
+
+```bash
+tunnel-client-gui.exe
+```
+
+这是原生 Windows 窗口，不需要打开浏览器。填写总控地址、用户名、密码，点击“启动”即可保持客户端运行；窗口里可以查看最近日志，也可以停止客户端。
+
+构建 Windows GUI：
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-H windowsgui -s -w" -o tunnel-client-gui.exe ./cmd/tunnel-client
+```
+
+### 命令行客户端
+
+Linux/macOS 或需要静默运行时，使用命令行：
+
+```bash
+tunnel-client -server http://192.168.6.64:8088 -user dark -password change-this-password
+```
+
+Linux/macOS 没有传账号参数时，会退回到本地 Web 启动器：
+
+```bash
+tunnel-client
+```
+
+### Docker 客户端
+
 用户客户端机器上的 `docker-compose.yml`：
 
 ```yaml
