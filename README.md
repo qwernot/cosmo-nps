@@ -104,36 +104,45 @@ docker compose up -d
 
 用户侧运行 `tunnel-client`。用户只需要填写总控地址、后台用户名和后台密码，不需要知道具体应该连接哪个节点。
 
-### Windows GUI
+新版本重构并美化了用户客户端，统一采用 Go 编写的 Web GUI 桌面架构，服务内嵌极简的高级毛玻璃 Dashboard。支持 Windows 系统托盘、静默运行、开机自启动及系统服务安装。同时跨平台兼容 Linux。
 
-Windows 用户可以使用桌面版：
+### 1. Windows 客户端（GUI 桌面版）
 
+提供完全的桌面客户端体验：
+- **无窗口运行**：直接双击 `tunnel-client.exe` 启动，不会弹出任何命令行 CMD 黑框（使用 GUI 链接标志构建）。
+- **系统托盘**：启动后缩入系统右下角托盘，内嵌精美 3D 发光图标。右键菜单支持：打开管理面板、设置开机自启动、退出。
+- **开机自启动**：可在网页设置或右键托盘中一键开启，Windows 登录时在后台以 `-silent` 静默模式启动。
+- **系统服务安装**：支持注册为原生 Windows 服务，并在后台持久运行。
+  - 安装服务：`tunnel-client.exe -service-install`
+  - 卸载服务：`tunnel-client.exe -service-uninstall`
+- **Web 管理面板**：本地服务默认监听 `http://127.0.0.1:18090`，展示发光指示灯状态、连接设置、本地启用的穿透隧道详情及实时高亮着色日志。
+
+**构建 Windows 版本**：
 ```bash
-TunnelClient.exe
+# 包含高清图标资源并配置无 console 窗口运行标志
+go build -ldflags="-H windowsgui -s -w" -o tunnel-client.exe ./cmd/tunnel-client
 ```
 
-这是 WinForms 桌面客户端，不是网页套壳。`TunnelClient.exe` 负责界面，旁边需要放 `tunnel-client-core.exe` 负责真实连接。填写总控地址、用户名、密码，点击“连接”即可保持客户端运行；窗口里可以查看最近日志，也可以停止客户端。
+### 2. Linux 客户端（守护进程与 Web GUI 版）
 
-构建 Windows GUI：
+Linux 客户端经过重构适配，支持跨平台编译：
+- **无需图形依赖**：在 Linux 下默认以 headless 守护进程配合 Web GUI 模式运行。可在 `CGO_ENABLED=0` 交叉编译，无需任何 GTK/C 编译器环境。
+- **Web 控制台**：启动后通过 `xdg-open` 自动唤起系统浏览器并提供与 Windows 相同的毛玻璃 Web 仪表盘。
+- **命令行模式**：直接传入参数进行传统无界面部署。
 
+**构建 Linux 版本**：
 ```bash
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o tunnel-client-core.exe ./cmd/tunnel-client
-C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /target:winexe /platform:x64 /out:TunnelClient.exe /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll cmd\tunnel-client-gui\TunnelClient.cs
+# CGO_ENABLED=0 交叉编译 Linux headless 版本
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o tunnel-client-linux ./cmd/tunnel-client
 ```
 
-### 命令行客户端
+### 3. 命令行静默启动模式（通用）
 
-Linux/macOS 或需要静默运行时，使用命令行：
-
+支持直接通过传参启动（不显示 GUI，直接连接）：
 ```bash
 tunnel-client -server http://192.168.6.64:8088 -user dark -password change-this-password
 ```
-
-Linux/macOS 没有传账号参数时，会退回到本地 Web 启动器：
-
-```bash
-tunnel-client
-```
+不带参数启动时，会自动进入本地 Web 启动器服务（默认地址 `127.0.0.1:18090`）。
 
 ### Docker 客户端
 

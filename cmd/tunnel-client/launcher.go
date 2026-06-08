@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/astaxie/beego/logs"
-	"github.com/getlantern/systray"
 	"qwernot/tunnel-control/internal/core"
 )
 
@@ -48,7 +47,6 @@ var globalState = &launcherState{
 
 var (
 	globalAddr string
-	mAutoStart *systray.MenuItem
 )
 
 func (s *launcherState) AppendLog(line string) {
@@ -192,47 +190,9 @@ func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) er
 		go openBrowser("http://" + addr)
 	}
 
-	// Start system tray (blocks on main thread)
-	systray.Run(onReady, onExit)
+	// Start system tray or wait loop (blocks on main thread)
+	startDesktopTray(addr, silent)
 	return nil
-}
-
-func onReady() {
-	systray.SetTooltip("Tunnel Client - NPS Multi-Node Tunnel")
-	systray.SetIcon(generateIconBytes())
-
-	mOpen := systray.AddMenuItem("打开主面板 (Open Dashboard)", "打开客户端网页管理主面板")
-	mAutoStart = systray.AddMenuItemCheckbox("开机自启动 (Boot Startup)", "设置开机自启动", isAutoStartEnabled())
-	systray.AddSeparator()
-	mExit := systray.AddMenuItem("退出 (Exit)", "关闭并退出客户端")
-
-	go func() {
-		for {
-			select {
-			case <-mOpen.ClickedCh:
-				openBrowser("http://" + globalAddr)
-			case <-mAutoStart.ClickedCh:
-				enabled := !isAutoStartEnabled()
-				err := setAutoStart(enabled)
-				if err != nil {
-					log.Printf("Failed to toggle auto start: %v", err)
-				} else {
-					if enabled {
-						mAutoStart.Check()
-					} else {
-						mAutoStart.Uncheck()
-					}
-				}
-			case <-mExit.ClickedCh:
-				systray.Quit()
-			}
-		}
-	}()
-}
-
-func onExit() {
-	closeAllClients()
-	os.Exit(0)
 }
 
 //go:embed app.ico
@@ -368,13 +328,7 @@ func (s *launcherState) setSettings(w http.ResponseWriter, r *http.Request) {
 		writeLauncherError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if mAutoStart != nil {
-		if req.AutoStart {
-			mAutoStart.Check()
-		} else {
-			mAutoStart.Uncheck()
-		}
-	}
+	setTrayAutoStartChecked(req.AutoStart)
 	writeLauncherJSON(w, map[string]any{"status": "ok"})
 }
 

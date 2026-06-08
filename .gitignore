@@ -4,6 +4,7 @@ deploy/docker/data/
 deploy/docker/.env
 
 /tunnel-control*
+/tunnel-client*
 *.exe
 *.exe~
 *.tar
