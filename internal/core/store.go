@@ -205,7 +205,7 @@ func (s *Store) UpsertNode(in Node) (Node, error) {
 	node.PublicAddr = strings.TrimSpace(in.PublicAddr)
 	node.Enabled = in.Enabled
 	node.FRPEnabled = false
-	node.NPSEnabled = true
+	node.NPSEnabled = in.NPSEnabled
 	node.PortPools = append([]PortRange(nil), in.PortPools...)
 	node.DomainPools = append([]string(nil), in.DomainPools...)
 	node.Runtime = in.Runtime
@@ -395,7 +395,6 @@ func (s *Store) CreateTunnel(in Tunnel) (Tunnel, error) {
 	if _, exists := s.db.Tunnels[in.ID]; exists {
 		return Tunnel{}, fmt.Errorf("tunnel %q already exists", in.ID)
 	}
-	in.Enabled = true
 	in.CreatedAt = now
 	in.UpdatedAt = now
 	cp := in

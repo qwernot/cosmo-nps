@@ -496,6 +496,10 @@ function field(form, name) {
 
 function clearUserForm() {
   $("#user-form").reset();
+  const form = $("#user-form");
+  field(form, "name").readOnly = false;
+  $("#user-form-title").textContent = "创建用户";
+  $("#user-submit-btn").textContent = "创建用户";
   $('#user-form input[name="enabled"]').checked = true;
   $('#user-form select[name="role"]').value = "user";
   $('#user-form input[name="maxPorts"]').value = "3";
@@ -503,12 +507,19 @@ function clearUserForm() {
 
 function clearNodeForm() {
   $("#node-form").reset();
+  const form = $("#node-form");
+  field(form, "id").readOnly = false;
+  $("#node-form-title").textContent = "创建节点";
+  $("#node-submit-btn").textContent = "创建节点";
   $('#node-form input[name="enabled"]').checked = true;
   $('#node-form input[name="npsEnabled"]').checked = true;
 }
 
 function clearTunnelForm() {
   $("#tunnel-form").reset();
+  const form = $("#tunnel-form");
+  $("#tunnel-form-title").textContent = "创建隧道";
+  $("#tunnel-submit-btn").textContent = "创建隧道";
   $('#tunnel-form input[name="id"]').value = "";
   $('#tunnel-form input[name="localIp"]').value = "127.0.0.1";
   $('#tunnel-form input[name="enabled"]').checked = true;
@@ -523,12 +534,15 @@ function editUser(name) {
   if (!user) return;
   const form = $("#user-form");
   field(form, "name").value = user.name;
+  field(form, "name").readOnly = true;
+  $("#user-form-title").textContent = `编辑用户: ${user.name}`;
+  $("#user-submit-btn").textContent = "保存修改";
   field(form, "password").value = "";
   field(form, "role").value = user.role;
   field(form, "maxPorts").value = user.maxPorts || 0;
   field(form, "portPool").value = formatPools(user.portPools);
   field(form, "domainPool").value = formatDomains(user.domainPools);
-  field(form, "npsVerifyKey").value = "";
+  field(form, "npsVerifyKey").value = user.npsVerifyKey || "";
   field(form, "enabled").checked = user.enabled;
   switchView("users");
 }
@@ -540,6 +554,9 @@ function editNode(id) {
   const form = $("#node-form");
   const runtime = node.runtime || {};
   field(form, "id").value = node.id;
+  field(form, "id").readOnly = true;
+  $("#node-form-title").textContent = `编辑节点: ${node.id}`;
+  $("#node-submit-btn").textContent = "保存修改";
   field(form, "name").value = node.name || "";
   field(form, "token").value = node.token || "";
   field(form, "publicAddr").value = node.publicAddr || "";
@@ -558,6 +575,8 @@ function editTunnel(id) {
   if (!tunnel) return;
   const form = $("#tunnel-form");
   field(form, "id").value = tunnel.id;
+  $("#tunnel-form-title").textContent = `编辑隧道: ${tunnel.id}`;
+  $("#tunnel-submit-btn").textContent = "保存修改";
   field(form, "userName").value = tunnel.userName;
   field(form, "nodeId").value = tunnel.nodeId || "local";
   if (field(form, "engine")) field(form, "engine").value = tunnel.engine;

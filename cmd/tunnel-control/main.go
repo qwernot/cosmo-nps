@@ -740,6 +740,7 @@ func (a *apiServer) listTunnels(w http.ResponseWriter, r *http.Request) {
 
 func (a *apiServer) createTunnel(w http.ResponseWriter, r *http.Request) {
 	var req core.Tunnel
+	req.Enabled = true // default to true if not specified
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

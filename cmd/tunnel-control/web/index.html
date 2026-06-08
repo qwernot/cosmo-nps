@@ -4,13 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tunnel Control</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body class="login-mode">
     <section class="login-screen" id="login-screen">
       <form class="login-panel" id="login-form">
         <div class="brand login-brand">
-          <div class="brand-mark">TC</div>
+          <div class="brand-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+              <path d="M20 6h-8M20 18h-8"></path>
+            </svg>
+          </div>
           <div>
             <div class="brand-title">Tunnel Control</div>
             <div class="brand-subtitle">统一穿透后台</div>
@@ -28,22 +40,30 @@
         <p class="login-note">首次启动会使用环境变量中的管理员账号；未设置时默认 admin / admin123。</p>
       </form>
     </section>
-
+ 
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">TC</div>
+        <div class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+            <path d="M20 6h-8M20 18h-8"></path>
+          </svg>
+        </div>
         <div>
           <div class="brand-title">Tunnel Control</div>
           <div class="brand-subtitle">NPS</div>
         </div>
       </div>
       <nav class="nav">
-        <button class="nav-item active" data-view="dashboard">概览</button>
-        <button class="nav-item admin-only" data-view="users">用户</button>
-        <button class="nav-item admin-only" data-view="nodes">节点</button>
-        <button class="nav-item" data-view="tunnels">隧道</button>
-        <button class="nav-item" data-view="configs">配置</button>
-        <button class="nav-item admin-only" data-view="logs">日志</button>
+        <button class="nav-item active" data-view="dashboard">📊 概览</button>
+        <button class="nav-item admin-only" data-view="users">👥 用户</button>
+        <button class="nav-item admin-only" data-view="nodes">🖥️ 节点</button>
+        <button class="nav-item" data-view="tunnels">🔌 隧道</button>
+        <button class="nav-item" data-view="configs">⚙️ 配置</button>
+        <button class="nav-item admin-only" data-view="logs">📋 日志</button>
       </nav>
       <div class="runtime">
         <span>服务地址</span>
@@ -139,7 +159,7 @@
         <div class="workspace">
           <form class="panel form-panel" id="user-form">
             <div class="panel-head">
-              <h2>用户</h2>
+              <h2 id="user-form-title">创建用户</h2>
               <button class="button small secondary" type="button" id="clear-user-form">清空</button>
             </div>
             <label>
@@ -179,7 +199,7 @@
               <input name="enabled" type="checkbox" checked />
               启用
             </label>
-            <button class="button" type="submit">保存用户</button>
+            <button class="button" type="submit" id="user-submit-btn">创建用户</button>
           </form>
           <section class="panel">
             <div class="panel-head">
@@ -211,7 +231,7 @@
         <div class="workspace">
           <form class="panel form-panel" id="node-form">
             <div class="panel-head">
-              <h2>节点</h2>
+              <h2 id="node-form-title">创建节点</h2>
               <button class="button small secondary" type="button" id="clear-node-form">清空</button>
             </div>
             <div class="form-grid">
@@ -264,7 +284,7 @@
               <input name="npsEnabled" type="checkbox" checked />
               启用 NPS
             </label>
-            <button class="button" type="submit">保存节点</button>
+            <button class="button" type="submit" id="node-submit-btn">创建节点</button>
           </form>
           <section class="panel">
             <div class="panel-head">
@@ -296,7 +316,7 @@
         <div class="workspace">
           <form class="panel form-panel" id="tunnel-form">
             <div class="panel-head">
-              <h2>隧道</h2>
+              <h2 id="tunnel-form-title">创建隧道</h2>
               <button class="button small secondary" type="button" id="clear-tunnel-form">清空</button>
             </div>
             <input name="id" type="hidden" />
@@ -350,7 +370,7 @@
               <input name="enabled" type="checkbox" checked />
               启用
             </label>
-            <button class="button" type="submit">保存隧道</button>
+            <button class="button" type="submit" id="tunnel-submit-btn">创建隧道</button>
           </form>
           <section class="panel">
             <div class="panel-head">
