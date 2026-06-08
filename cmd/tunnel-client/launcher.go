@@ -143,6 +143,8 @@ func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) er
 	mux.HandleFunc("GET /api/status", globalState.status)
 	mux.HandleFunc("POST /api/start", globalState.start)
 	mux.HandleFunc("POST /api/stop", globalState.stop)
+	mux.HandleFunc("GET /api/settings", globalState.getSettings)
+	mux.HandleFunc("POST /api/settings", globalState.setSettings)
 
 	// Start HTTP server in background thread
 	go func() {
@@ -336,6 +338,35 @@ func (s *launcherState) stop(w http.ResponseWriter, r *http.Request) {
 	writeLauncherJSON(w, map[string]any{"status": "stopping"})
 }
 
+func (s *launcherState) getSettings(w http.ResponseWriter, r *http.Request) {
+	writeLauncherJSON(w, map[string]any{
+		"autoStart": isAutoStartEnabled(),
+	})
+}
+
+func (s *launcherState) setSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AutoStart bool `json:"autoStart"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeLauncherError(w, http.StatusBadRequest, err)
+		return
+	}
+	err := setAutoStart(req.AutoStart)
+	if err != nil {
+		writeLauncherError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if mAutoStart != nil {
+		if req.AutoStart {
+			mAutoStart.Check()
+		} else {
+			mAutoStart.Uncheck()
+		}
+	}
+	writeLauncherJSON(w, map[string]any{"status": "ok"})
+}
+
 func loadLauncherConfig() launcherConfig {
 	var cfg launcherConfig
 	b, err := os.ReadFile(launcherConfigPath())
@@ -437,14 +468,14 @@ const launcherHTML = `<!doctype html>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-primary: #070913;
-      --bg-secondary: #0d1226;
-      --accent-cyan: #22d3ee;
-      --accent-blue: #3b82f6;
-      --accent-glow: rgba(34, 211, 238, 0.15);
-      --text-main: #f3f4f6;
-      --text-muted: #9ca3af;
-      --border-color: rgba(255, 255, 255, 0.08);
+      --bg-primary: #080a14;
+      --bg-secondary: #0e132b;
+      --accent-cyan: #3b82f6;
+      --accent-blue: #1d4ed8;
+      --accent-glow: rgba(59, 130, 246, 0.15);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: rgba(255, 255, 255, 0.06);
       --emerald: #10b981;
       --rose: #f43f5e;
       --amber: #f59e0b;
@@ -495,6 +526,8 @@ const launcherHTML = `<!doctype html>
       height: calc(100vh - 48px);
       position: sticky;
       top: 24px;
+      background: rgba(11, 15, 25, 0.85) !important;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
     }
 
     .brand {
@@ -534,15 +567,58 @@ const launcherHTML = `<!doctype html>
       font-weight: 400;
     }
 
+    /* Navigation Menu */
+    .nav-menu {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 16px;
+      transition: all 0.2s ease-in-out;
+      user-select: none;
+    }
+
+    .nav-item:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .nav-item.active {
+      color: #fff;
+      background: #2563eb; /* Solid bright blue matching user's screenshot */
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+    }
+
+    .nav-icon {
+      font-size: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+    }
+
     /* Status Card */
     .status-card {
-      background: rgba(255, 255, 255, 0.02);
+      background: rgba(0, 0, 0, 0.2);
       border-radius: 16px;
       padding: 20px;
       border: 1px solid rgba(255, 255, 255, 0.04);
       display: flex;
       flex-direction: column;
       gap: 16px;
+      margin-top: auto; /* Push to bottom of sidebar */
     }
 
     .status-badge {
@@ -614,11 +690,21 @@ const launcherHTML = `<!doctype html>
       white-space: nowrap;
     }
 
-    /* Main Panels */
+    /* Content Area & Tabs */
     .content-area {
       display: flex;
       flex-direction: column;
+      position: relative;
+    }
+
+    .tab-content {
+      display: none;
+      flex-direction: column;
       gap: 24px;
+    }
+
+    .tab-content.active {
+      display: flex;
     }
 
     h2 {
@@ -659,7 +745,7 @@ const launcherHTML = `<!doctype html>
       color: var(--text-muted);
     }
 
-    input {
+    input[type="text"], input[type="url"], input[type="password"] {
       background: rgba(0, 0, 0, 0.3);
       border: 1px solid var(--border-color);
       border-radius: 12px;
@@ -671,7 +757,7 @@ const launcherHTML = `<!doctype html>
       transition: all 0.3s ease;
     }
 
-    input:focus {
+    input[type="text"]:focus, input[type="url"]:focus, input[type="password"]:focus {
       border-color: var(--accent-cyan);
       box-shadow: 0 0 0 4px var(--accent-glow);
     }
@@ -835,7 +921,7 @@ const launcherHTML = `<!doctype html>
       border: 1px solid var(--border-color);
       border-radius: 12px;
       padding: 16px;
-      height: 280px;
+      height: 480px;
       overflow-y: auto;
       font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
@@ -866,6 +952,82 @@ const launcherHTML = `<!doctype html>
 
     .log-text {
       color: #c9d1d9;
+    }
+
+    /* Settings Switch Layout */
+    .setting-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+    }
+
+    .setting-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .setting-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .setting-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Custom Switch Toggle */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 48px;
+      height: 26px;
+    }
+
+    .switch input { 
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+      transition: .4s;
+      border-radius: 34px;
+      border: 1px solid var(--border-color);
+    }
+
+    .slider::before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent-cyan);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    input:focus + .slider {
+      box-shadow: 0 0 1px var(--accent-cyan);
+    }
+
+    input:checked + .slider::before {
+      transform: translateX(22px);
     }
 
     /* Custom Scrollbars */
@@ -901,8 +1063,8 @@ const launcherHTML = `<!doctype html>
 <body>
   <main>
     <!-- Sidebar -->
-    <aside class="sidebar">
-      <div class="glass-panel brand">
+    <aside class="sidebar glass-panel">
+      <div class="brand">
         <div class="brand-logo">
           <svg viewBox="0 0 24 24">
             <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 0 1-2.827 0l-4.244-4.243a8 8 0 1 1 11.314 0zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
@@ -914,7 +1076,23 @@ const launcherHTML = `<!doctype html>
         </div>
       </div>
 
-      <div class="glass-panel status-card">
+      <!-- Navigation Menu -->
+      <nav class="nav-menu">
+        <div class="nav-item active" data-tab="client">
+          <span class="nav-icon">🔗</span>
+          <span>客户端</span>
+        </div>
+        <div class="nav-item" data-tab="logs">
+          <span class="nav-icon">📋</span>
+          <span>连接日志</span>
+        </div>
+        <div class="nav-item" data-tab="settings">
+          <span class="nav-icon">⚙️</span>
+          <span>设置</span>
+        </div>
+      </nav>
+
+      <div class="status-card">
         <span class="status-badge" id="status-badge">未连接</span>
         <div class="meta-list">
           <div class="meta-item">
@@ -939,55 +1117,82 @@ const launcherHTML = `<!doctype html>
 
     <!-- Content Area -->
     <section class="content-area">
-      <!-- Config Panel -->
-      <section class="glass-panel">
-        <h2>
-          <svg viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
-          连接设置
-        </h2>
-        <form id="connect-form">
-          <div class="form-group full-width">
-            <label>总控面板地址</label>
-            <input name="controlUrl" type="url" placeholder="http://192.168.6.64:8088" required />
-          </div>
-          <div class="form-group">
-            <label>用户名</label>
-            <input name="user" type="text" placeholder="用户名" required />
-          </div>
-          <div class="form-group">
-            <label>密码</label>
-            <input name="password" type="password" placeholder="密码" required />
-          </div>
-          <div class="form-group">
-            <label>定时重连间隔</label>
-            <input name="refresh" type="text" value="30s" />
-          </div>
-          <div class="form-actions">
-            <button type="submit" id="btn-start">启动客户端</button>
-            <button type="button" class="danger-btn" id="btn-stop">停止</button>
-          </div>
-        </form>
-      </section>
+      <!-- CLIENT TAB -->
+      <div class="tab-content active" id="tab-client">
+        <!-- Config Panel -->
+        <section class="glass-panel">
+          <h2>
+            <svg viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+            连接设置
+          </h2>
+          <form id="connect-form">
+            <div class="form-group full-width">
+              <label>总控面板地址</label>
+              <input name="controlUrl" type="url" placeholder="http://192.168.6.64:8088" required />
+            </div>
+            <div class="form-group">
+              <label>用户名</label>
+              <input name="user" type="text" placeholder="用户名" required />
+            </div>
+            <div class="form-group">
+              <label>密码</label>
+              <input name="password" type="password" placeholder="密码" required />
+            </div>
+            <div class="form-group">
+              <label>定时重连间隔</label>
+              <input name="refresh" type="text" value="30s" />
+            </div>
+            <div class="form-actions">
+              <button type="submit" id="btn-start">启动客户端</button>
+              <button type="button" class="danger-btn" id="btn-stop">停止</button>
+            </div>
+          </form>
+        </section>
 
-      <!-- Active Tunnels Panel -->
-      <section class="glass-panel">
-        <h2>
-          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-          本地启用中的穿透隧道
-        </h2>
-        <div class="tunnel-grid" id="tunnels-list">
-          <div class="empty-state">未连接总控服务</div>
-        </div>
-      </section>
+        <!-- Active Tunnels Panel -->
+        <section class="glass-panel">
+          <h2>
+            <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            本地启用中的穿透隧道
+          </h2>
+          <div class="tunnel-grid" id="tunnels-list">
+            <div class="empty-state">未连接总控服务</div>
+          </div>
+        </section>
+      </div>
 
-      <!-- Logs Panel -->
-      <section class="glass-panel logs-panel">
-        <h2>
-          <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
-          控制台输出
-        </h2>
-        <div class="logs-container" id="logs-view">等待连接...</div>
-      </section>
+      <!-- LOGS TAB -->
+      <div class="tab-content" id="tab-logs">
+        <!-- Logs Panel -->
+        <section class="glass-panel logs-panel">
+          <h2>
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+            连接日志
+          </h2>
+          <div class="logs-container" id="logs-view">等待连接...</div>
+        </section>
+      </div>
+
+      <!-- SETTINGS TAB -->
+      <div class="tab-content" id="tab-settings">
+        <!-- Settings Panel -->
+        <section class="glass-panel">
+          <h2>
+            <svg viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+            系统设置
+          </h2>
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-title">开机自启动</span>
+              <span class="setting-desc">当 Windows 系统启动时，在后台静默运行客户端</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-autostart" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </section>
+      </div>
     </section>
   </main>
 
@@ -1005,6 +1210,26 @@ const launcherHTML = `<!doctype html>
     let uptimeInterval = null;
     let startedTime = null;
 
+    // Tab switching logic
+    const navItems = document.querySelectorAll(".nav-item");
+    const tabContents = document.querySelectorAll(".tab-content");
+    
+    navItems.forEach(item => {
+      item.addEventListener("click", () => {
+        const tab = item.getAttribute("data-tab");
+        
+        navItems.forEach(i => i.classList.remove("active"));
+        tabContents.forEach(c => c.classList.remove("active"));
+        
+        item.classList.add("active");
+        document.querySelector("#tab-" + tab).classList.add("active");
+        
+        if (tab === "settings") {
+          loadSettings();
+        }
+      });
+    });
+
     const api = async (path, options = {}) => {
       const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
       if (!res.ok) {
@@ -1013,8 +1238,6 @@ const launcherHTML = `<!doctype html>
       }
       return res.json();
     };
-
-    const pad = (num) => String(num).padStart(2, '0');
 
     const updateUptime = () => {
       if (!startedTime) {
@@ -1138,6 +1361,27 @@ const launcherHTML = `<!doctype html>
       }
     };
 
+    const loadSettings = async () => {
+      try {
+        const data = await api("/api/settings");
+        document.querySelector("#setting-autostart").checked = data.autoStart;
+      } catch (err) {
+        console.error("Failed to load settings:", err);
+      }
+    };
+
+    document.querySelector("#setting-autostart").addEventListener("change", async (e) => {
+      try {
+        await api("/api/settings", {
+          method: "POST",
+          body: JSON.stringify({ autoStart: e.target.checked })
+        });
+      } catch (err) {
+        alert("保存设置失败: " + err.message);
+        e.target.checked = !e.target.checked;
+      }
+    });
+
     const refresh = async () => {
       try {
         const data = await api("/api/status");
@@ -1146,6 +1390,8 @@ const launcherHTML = `<!doctype html>
         logsView.innerHTML = '<div class="log-line"><span class="log-level error">[ERROR]</span><span class="log-text">' + escapeHtml(err.message) + '</span></div>';
       }
     };
+
+    const pad = (num) => String(num).padStart(2, '0');
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
