@@ -2,11 +2,9 @@
 
 package main
 
-import (
-	"fmt"
-	"time"
-)
+import "time"
 
-func runDesktopLauncher(_ string, _ string, _ time.Duration) error {
-	return fmt.Errorf("Windows GUI is provided by TunnelClient.exe; run tunnel-client-core.exe with -no-gui for command line mode")
+func runDesktopLauncher(addr, controlURL string, refresh time.Duration) error {
+	return runLauncher(addr, controlURL, refresh)
 }
+

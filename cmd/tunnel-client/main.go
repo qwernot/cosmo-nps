@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -43,7 +45,30 @@ type bootstrapNode struct {
 	Tunnels []core.Tunnel      `json:"tunnels"`
 }
 
+var (
+	runningClients   []*npsclient.TRPClient
+	runningClientsMu sync.Mutex
+)
+
+func registerClient(c *npsclient.TRPClient) {
+	runningClientsMu.Lock()
+	defer runningClientsMu.Unlock()
+	runningClients = append(runningClients, c)
+}
+
+func closeAllClients() {
+	runningClientsMu.Lock()
+	defer runningClientsMu.Unlock()
+	for _, c := range runningClients {
+		c.Close()
+	}
+	runningClients = nil
+}
+
 func main() {
+	if runAsService() {
+		return
+	}
 	controlURL := flag.String("server", getenv("CONTROL_URL", "http://127.0.0.1:8088"), "central control URL")
 	username := flag.String("user", getenv("TUNNEL_USER", ""), "control panel username")
 	password := flag.String("password", getenv("TUNNEL_PASSWORD", ""), "control panel password")
@@ -74,6 +99,20 @@ func main() {
 }
 
 func runClient(controlURL, username, password string, refresh time.Duration) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-stop
+		cancel()
+	}()
+
+	return runClientCtx(ctx, controlURL, username, password, refresh)
+}
+
+func runClientCtx(ctx context.Context, controlURL, username, password string, refresh time.Duration) error {
 	if username == "" || password == "" {
 		return fmt.Errorf("TUNNEL_USER/TUNNEL_PASSWORD or -user/-password is required")
 	}
@@ -86,21 +125,25 @@ func runClient(controlURL, username, password string, refresh time.Duration) err
 	}
 	log.Printf("logged in to %s as %s", strings.TrimRight(controlURL, "/"), username)
 
+	// Reset CloseClient flag so NPS retry loop starts properly
+	npsclient.CloseClient = false
+
 	startedNPS := map[string]bool{}
 	if err := syncAndStart(client, controlURL, startedNPS); err != nil {
 		log.Printf("initial sync failed: %v", err)
 	}
 	ticker := time.NewTicker(refresh)
 	defer ticker.Stop()
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	defer closeAllClients()
+
 	for {
 		select {
 		case <-ticker.C:
 			if err := syncAndStart(client, controlURL, startedNPS); err != nil {
 				log.Printf("sync failed: %v", err)
 			}
-		case <-stop:
+		case <-ctx.Done():
 			log.Printf("stopping tunnel-client")
 			return nil
 		}
@@ -145,6 +188,7 @@ func syncAndStart(client *http.Client, controlURL string, startedNPS map[string]
 	if err != nil {
 		return err
 	}
+	globalState.updateTunnels(bundle.Nodes)
 	for _, node := range bundle.Nodes {
 		if countNPSTunnels(node.Tunnels) > 0 {
 			if bundle.Secrets.NPSVerifyKey == "" {
@@ -173,7 +217,9 @@ func startNPSClient(node bootstrapNode, verifyKey string) {
 				DisconnectTime: 60,
 			},
 		}
-		npsclient.NewRPClient(server, verifyKey, "tcp", "", cnf, 60).Start()
+		c := npsclient.NewRPClient(server, verifyKey, "tcp", "", cnf, 60)
+		registerClient(c)
+		c.Start()
 		log.Printf("NPS client exited for node=%s server=%s", nodeID, server)
 	}(node.ID, server)
 }

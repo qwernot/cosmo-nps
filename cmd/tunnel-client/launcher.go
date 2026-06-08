@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,6 +13,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/astaxie/beego/logs"
+	"qwernot/tunnel-control/internal/core"
 )
 
 type launcherConfig struct {
@@ -25,10 +28,82 @@ type launcherConfig struct {
 type launcherState struct {
 	mu      sync.Mutex
 	cfg     launcherConfig
-	cmd     *exec.Cmd
 	running bool
 	started time.Time
 	logs    []string
+	tunnels []core.Tunnel
+	cancel  context.CancelFunc
+}
+
+var globalState = &launcherState{
+	logs: make([]string, 0),
+}
+
+func (s *launcherState) AppendLog(line string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appendLocked(line)
+}
+
+func (s *launcherState) appendLocked(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	s.logs = append(s.logs, time.Now().Format("15:04:05")+" "+line)
+	if len(s.logs) > 400 {
+		s.logs = s.logs[len(s.logs)-400:]
+	}
+}
+
+func (s *launcherState) UpdateTunnels(tunnels []core.Tunnel) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tunnels = tunnels
+}
+
+// BeegoUILogger redirects ehang.io/nps (beego logs) to launcher UI logs
+type BeegoUILogger struct{}
+
+func (b *BeegoUILogger) Init(config string) error { return nil }
+func (b *BeegoUILogger) WriteMsg(when time.Time, msg string, level int) error {
+	levelStr := "INFO"
+	switch level {
+	case logs.LevelDebug:
+		levelStr = "DEBUG"
+	case logs.LevelInfo:
+		levelStr = "INFO"
+	case logs.LevelWarning:
+		levelStr = "WARN"
+	case logs.LevelError:
+		levelStr = "ERROR"
+	}
+	globalState.AppendLog(fmt.Sprintf("[%s] %s", levelStr, msg))
+	return nil
+}
+func (b *BeegoUILogger) Destroy() {}
+func (b *BeegoUILogger) Flush()   {}
+
+// goLogWriter redirects standard go log package output to launcher UI logs
+type goLogWriter struct{}
+
+func (w *goLogWriter) Write(p []byte) (n int, err error) {
+	os.Stdout.Write(p)
+	msg := string(p)
+	msg = strings.TrimSuffix(msg, "\n")
+	msg = strings.TrimSuffix(msg, "\r")
+
+	if !strings.Contains(msg, "[INFO]") && !strings.Contains(msg, "[WARN]") && !strings.Contains(msg, "[ERROR]") {
+		msg = "[INFO] " + msg
+	}
+	globalState.AppendLog(msg)
+	return len(p), nil
+}
+
+func init() {
+	logs.Register("client_ui_log", func() logs.Logger {
+		return &BeegoUILogger{}
+	})
 }
 
 func runLauncher(addr, controlURL string, refresh time.Duration) error {
@@ -39,15 +114,23 @@ func runLauncher(addr, controlURL string, refresh time.Duration) error {
 	if cfg.Refresh == "" {
 		cfg.Refresh = refresh.String()
 	}
-	state := &launcherState{cfg: cfg}
+
+	globalState.mu.Lock()
+	globalState.cfg = cfg
+	globalState.mu.Unlock()
+
+	// Redirect standard logger and beego logger to UI logs
+	log.SetOutput(&goLogWriter{})
+	logs.SetLogger("client_ui_log", "")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(launcherHTML))
 	})
-	mux.HandleFunc("GET /api/status", state.status)
-	mux.HandleFunc("POST /api/start", state.start)
-	mux.HandleFunc("POST /api/stop", state.stop)
+	mux.HandleFunc("GET /api/status", globalState.status)
+	mux.HandleFunc("POST /api/start", globalState.start)
+	mux.HandleFunc("POST /api/stop", globalState.stop)
 
 	url := "http://" + addr
 	log.Printf("tunnel-client launcher listening on %s", url)
@@ -62,6 +145,7 @@ func (s *launcherState) status(w http.ResponseWriter, r *http.Request) {
 		"config":  s.cfg,
 		"running": s.running,
 		"started": s.started,
+		"tunnels": s.tunnels,
 		"logs":    append([]string(nil), s.logs...),
 	})
 }
@@ -81,7 +165,8 @@ func (s *launcherState) start(w http.ResponseWriter, r *http.Request) {
 		writeLauncherError(w, http.StatusBadRequest, fmt.Errorf("server, user and password are required"))
 		return
 	}
-	if _, err := time.ParseDuration(cfg.Refresh); err != nil {
+	refreshDur, err := time.ParseDuration(cfg.Refresh)
+	if err != nil {
 		writeLauncherError(w, http.StatusBadRequest, fmt.Errorf("invalid refresh interval: %w", err))
 		return
 	}
@@ -92,106 +177,49 @@ func (s *launcherState) start(w http.ResponseWriter, r *http.Request) {
 		writeLauncherError(w, http.StatusConflict, fmt.Errorf("client is already running"))
 		return
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		s.mu.Unlock()
-		writeLauncherError(w, http.StatusInternalServerError, err)
-		return
-	}
-	cmd := exec.Command(exe,
-		"-no-gui",
-		"-server", cfg.ControlURL,
-		"-user", cfg.User,
-		"-password", cfg.Password,
-		"-refresh", cfg.Refresh,
-	)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		s.mu.Unlock()
-		writeLauncherError(w, http.StatusInternalServerError, err)
-		return
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		s.mu.Unlock()
-		writeLauncherError(w, http.StatusInternalServerError, err)
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		s.mu.Unlock()
-		writeLauncherError(w, http.StatusInternalServerError, err)
-		return
-	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
 	s.cfg = cfg
-	s.cmd = cmd
 	s.running = true
 	s.started = time.Now()
-	s.appendLocked("launcher: tunnel-client started")
+	s.tunnels = nil
+	s.logs = make([]string, 0)
+	s.appendLocked("[INFO] launcher: starting tunnel-client...")
 	s.mu.Unlock()
 
 	_ = saveLauncherConfig(cfg)
-	go s.capture(stdout)
-	go s.capture(stderr)
-	go s.wait(cmd)
+
+	go func() {
+		err := runClientCtx(ctx, cfg.ControlURL, cfg.User, cfg.Password, refreshDur)
+		s.mu.Lock()
+		s.running = false
+		s.cancel = nil
+		s.tunnels = nil
+		if err != nil {
+			s.appendLocked("[ERROR] launcher: tunnel-client exited with error: " + err.Error())
+		} else {
+			s.appendLocked("[INFO] launcher: tunnel-client stopped")
+		}
+		s.mu.Unlock()
+	}()
+
 	writeLauncherJSON(w, map[string]any{"status": "started"})
 }
 
 func (s *launcherState) stop(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	cmd := s.cmd
-	if !s.running || cmd == nil || cmd.Process == nil {
+	cancel := s.cancel
+	if !s.running || cancel == nil {
 		s.mu.Unlock()
 		writeLauncherJSON(w, map[string]any{"status": "stopped"})
 		return
 	}
-	s.appendLocked("launcher: stopping tunnel-client")
+	s.appendLocked("[INFO] launcher: stopping tunnel-client...")
 	s.mu.Unlock()
 
-	if runtime.GOOS == "windows" {
-		_ = cmd.Process.Kill()
-	} else {
-		_ = cmd.Process.Signal(os.Interrupt)
-	}
+	cancel()
 	writeLauncherJSON(w, map[string]any{"status": "stopping"})
-}
-
-func (s *launcherState) capture(pipe any) {
-	reader, ok := pipe.(*os.File)
-	if !ok {
-		return
-	}
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		s.mu.Lock()
-		s.appendLocked(scanner.Text())
-		s.mu.Unlock()
-	}
-}
-
-func (s *launcherState) wait(cmd *exec.Cmd) {
-	err := cmd.Wait()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cmd == cmd {
-		s.running = false
-		s.cmd = nil
-	}
-	if err != nil {
-		s.appendLocked("launcher: tunnel-client exited: " + err.Error())
-	} else {
-		s.appendLocked("launcher: tunnel-client stopped")
-	}
-}
-
-func (s *launcherState) appendLocked(line string) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return
-	}
-	s.logs = append(s.logs, time.Now().Format("15:04:05")+" "+line)
-	if len(s.logs) > 300 {
-		s.logs = s.logs[len(s.logs)-300:]
-	}
 }
 
 func loadLauncherConfig() launcherConfig {
@@ -230,7 +258,7 @@ func openBrowser(url string) {
 	switch runtime.GOOS {
 	case "windows":
 		if browser := windowsAppBrowser(); browser != "" {
-			cmd = exec.Command(browser, "--app="+url, "--window-size=980,720")
+			cmd = exec.Command(browser, "--app="+url, "--window-size=1080,780")
 			break
 		}
 		cmd = exec.Command("cmd", "/c", "start", "", url)
@@ -275,131 +303,761 @@ func writeLauncherError(w http.ResponseWriter, status int, err error) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
+// Global update method to link main.go's sync loop to globalState
+func (s *launcherState) updateTunnels(nodes []bootstrapNode) {
+	var list []core.Tunnel
+	for _, node := range nodes {
+		for _, t := range node.Tunnels {
+			list = append(list, t)
+		}
+	}
+	s.UpdateTunnels(list)
+}
+
 const launcherHTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tunnel Client</title>
+  <title>Tunnel Client Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme: dark; font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif; color: #eef6ff; background: #08111f; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; padding: 18px; background: radial-gradient(circle at 20% 12%, rgba(0, 214, 201, .24), transparent 28%), radial-gradient(circle at 85% 0%, rgba(68, 119, 255, .26), transparent 24%), linear-gradient(145deg, #08111f 0%, #0c1829 45%, #111827 100%); }
-    main { width: min(1080px, 100%); margin: 0 auto; display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; }
-    .hero { min-height: 676px; border: 1px solid rgba(125, 211, 252, .22); border-radius: 18px; padding: 24px; background: linear-gradient(155deg, rgba(14, 165, 233, .22), rgba(15, 23, 42, .86) 48%, rgba(20, 184, 166, .16)); box-shadow: 0 28px 80px rgba(0, 0, 0, .38); position: relative; overflow: hidden; }
-    .hero::after { content: ""; position: absolute; inset: auto -30px -65px 24px; height: 170px; background: linear-gradient(90deg, rgba(45, 212, 191, .22), rgba(96, 165, 250, .16)); filter: blur(2px); transform: skewY(-8deg); }
-    .brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
-    .mark { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(145deg, #22d3ee, #2563eb); box-shadow: 0 16px 30px rgba(37, 99, 235, .45); font-weight: 900; color: white; }
-    h1 { margin: 0; font-size: 25px; letter-spacing: 0; }
-    .sub { margin: 4px 0 0; color: #9fb3ca; font-size: 13px; }
-    .status-card { position: relative; z-index: 1; margin-top: 34px; padding: 18px; border-radius: 16px; background: rgba(8, 18, 33, .56); border: 1px solid rgba(148, 163, 184, .18); }
-    .status { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 999px; background: rgba(148, 163, 184, .14); color: #cbd5e1; font-size: 13px; font-weight: 800; }
-    .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; box-shadow: 0 0 0 5px rgba(148, 163, 184, .12); }
-    .status.online { background: rgba(34, 197, 94, .16); color: #bbf7d0; }
-    .status.online::before { background: #22c55e; box-shadow: 0 0 0 5px rgba(34, 197, 94, .15); }
-    .metric { margin-top: 18px; display: grid; gap: 10px; }
-    .metric div { display: flex; justify-content: space-between; color: #b6c6d8; font-size: 13px; }
-    .metric strong { color: #f8fafc; }
-    .panel { border: 1px solid rgba(148, 163, 184, .22); border-radius: 18px; background: rgba(15, 23, 42, .78); box-shadow: 0 24px 70px rgba(0, 0, 0, .32); backdrop-filter: blur(14px); }
-    .config { padding: 22px; }
-    .panel-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 18px; }
-    h2 { margin: 0; font-size: 18px; letter-spacing: 0; }
-    .hint { color: #94a3b8; font-size: 12px; }
-    form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-    label { display: grid; gap: 7px; font-size: 12px; font-weight: 800; color: #cbd5e1; }
-    input { width: 100%; border: 1px solid rgba(148, 163, 184, .26); border-radius: 11px; padding: 12px 13px; font: inherit; color: #f8fafc; background: rgba(2, 8, 23, .52); outline: none; }
-    input:focus { border-color: rgba(34, 211, 238, .78); box-shadow: 0 0 0 4px rgba(34, 211, 238, .12); }
-    .wide { grid-column: 1 / -1; }
-    .actions { display: flex; gap: 10px; align-items: center; grid-column: 1 / -1; padding-top: 4px; }
-    button { border: 0; border-radius: 11px; padding: 12px 18px; font-weight: 900; cursor: pointer; color: white; background: linear-gradient(135deg, #06b6d4, #2563eb); box-shadow: 0 14px 28px rgba(37, 99, 235, .28); }
-    button.secondary { background: rgba(148, 163, 184, .18); color: #dbeafe; box-shadow: none; }
-    button.danger { background: linear-gradient(135deg, #fb7185, #dc2626); box-shadow: 0 14px 26px rgba(220, 38, 38, .18); }
-    .content { display: grid; gap: 16px; }
-    .logs-panel { overflow: hidden; }
-    .logs-head { padding: 16px 18px; border-bottom: 1px solid rgba(148, 163, 184, .16); display: flex; align-items: center; justify-content: space-between; }
-    pre { margin: 0; min-height: 360px; max-height: 450px; overflow: auto; background: rgba(2, 6, 23, .84); color: #bfdbfe; padding: 16px 18px; font: 12px/1.6 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; }
-    @media (max-width: 880px) { main { grid-template-columns: 1fr; } .hero { min-height: auto; } }
+    :root {
+      --bg-primary: #070913;
+      --bg-secondary: #0d1226;
+      --accent-cyan: #22d3ee;
+      --accent-blue: #3b82f6;
+      --accent-glow: rgba(34, 211, 238, 0.15);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --border-color: rgba(255, 255, 255, 0.08);
+      --emerald: #10b981;
+      --rose: #f43f5e;
+      --amber: #f59e0b;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--text-main);
+      background-color: var(--bg-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(34, 211, 238, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 40%);
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 24px;
+    }
+
+    /* Glassmorphism Panel styles */
+    .glass-panel {
+      background: rgba(13, 18, 38, 0.6);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      padding: 24px;
+    }
+
+    /* Sidebar Layout */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      height: calc(100vh - 48px);
+      position: sticky;
+      top: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand-logo {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
+    }
+
+    .brand-logo svg {
+      width: 24px;
+      height: 24px;
+      fill: #fff;
+    }
+
+    .brand-title h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: linear-gradient(to right, #ffffff, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-title p {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    /* Status Card */
+    .status-card {
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      align-self: flex-start;
+      padding: 6px 14px;
+      border-radius: 99px;
+      font-size: 13px;
+      font-weight: 600;
+      background: rgba(156, 163, 175, 0.1);
+      color: var(--text-muted);
+      transition: all 0.3s ease;
+    }
+
+    .status-badge.online {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--emerald);
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
+    }
+
+    .status-badge.connecting {
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--amber);
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.1);
+    }
+
+    .status-badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-badge.online::before, .status-badge.connecting::before {
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.25); opacity: 1; box-shadow: 0 0 10px currentColor; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+
+    .meta-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .meta-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .meta-item span {
+      color: var(--text-muted);
+    }
+
+    .meta-item strong {
+      color: var(--text-main);
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Main Panels */
+    .content-area {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h2 svg {
+      width: 18px;
+      height: 18px;
+      fill: var(--accent-cyan);
+    }
+
+    /* Connection Card Form */
+    form {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-group.full-width {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    input {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+
+    input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 4px var(--accent-glow);
+    }
+
+    .form-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    button {
+      flex: 1;
+      border: none;
+      border-radius: 12px;
+      padding: 12px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: inherit;
+    }
+
+    button[type="submit"] {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(34, 211, 238, 0.2);
+    }
+
+    button[type="submit"]:hover {
+      box-shadow: 0 4px 20px rgba(34, 211, 238, 0.35);
+      transform: translateY(-1px);
+    }
+
+    button.danger-btn {
+      background: rgba(244, 63, 94, 0.1);
+      color: var(--rose);
+      border: 1px solid rgba(244, 63, 94, 0.2);
+    }
+
+    button.danger-btn:hover {
+      background: rgba(244, 63, 94, 0.18);
+      transform: translateY(-1px);
+    }
+
+    /* Active Tunnels Section */
+    .tunnel-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 8px;
+    }
+
+    .tunnel-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.3s ease;
+    }
+
+    .tunnel-card:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(34, 211, 238, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .tunnel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tunnel-mode {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+    }
+
+    .tunnel-mode.tcp { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+    .tunnel-mode.udp { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+    .tunnel-mode.socks5 { background: rgba(234, 179, 8, 0.15); color: #facc15; }
+    .tunnel-mode.http { background: rgba(20, 184, 166, 0.15); color: #2dd4bf; }
+    .tunnel-mode.https { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+
+    .tunnel-status {
+      font-size: 12px;
+      color: var(--emerald);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tunnel-status::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .tunnel-addrs {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .addr-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .addr-label {
+      color: var(--text-muted);
+      width: 42px;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .addr-val {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-main);
+    }
+
+    .tunnel-remark {
+      font-size: 12px;
+      color: var(--text-muted);
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      padding-top: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 40px;
+      color: var(--text-muted);
+      font-size: 14px;
+      background: rgba(255, 255, 255, 0.01);
+      border-radius: 14px;
+      border: 1px dashed rgba(255, 255, 255, 0.05);
+    }
+
+    /* Logs Section */
+    .logs-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .logs-container {
+      background: #02040a;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      height: 280px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    .log-line {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .log-time {
+      color: #57606a;
+      margin-right: 8px;
+    }
+
+    .log-level {
+      font-weight: 500;
+      margin-right: 6px;
+    }
+
+    .log-level.info { color: #58a6ff; }
+    .log-level.warn { color: #d29922; }
+    .log-level.error { color: #f85149; }
+    .log-level.trace { color: #8b949e; }
+    .log-level.debug { color: #c9d1d9; }
+
+    .log-text {
+      color: #c9d1d9;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    @media (max-width: 900px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        height: auto;
+        position: static;
+      }
+    }
   </style>
 </head>
 <body>
   <main>
-    <aside class="hero">
-      <div class="brand">
-        <div class="mark">TC</div>
-        <div>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="glass-panel brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24">
+            <path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 0 1-2.827 0l-4.244-4.243a8 8 0 1 1 11.314 0zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+          </svg>
+        </div>
+        <div class="brand-title">
           <h1>Tunnel Client</h1>
-          <p class="sub">NPS 云穿透客户端</p>
+          <p>NPS 多节点隧道客户端</p>
         </div>
       </div>
-      <div class="status-card">
-        <span class="status" id="status">未运行</span>
-        <div class="metric">
-          <div><span>总控</span><strong id="server-label">-</strong></div>
-          <div><span>账号</span><strong id="user-label">-</strong></div>
-          <div><span>模式</span><strong>自动节点</strong></div>
+
+      <div class="glass-panel status-card">
+        <span class="status-badge" id="status-badge">未连接</span>
+        <div class="meta-list">
+          <div class="meta-item">
+            <span>总控服务</span>
+            <strong id="meta-server">-</strong>
+          </div>
+          <div class="meta-item">
+            <span>连接账号</span>
+            <strong id="meta-user">-</strong>
+          </div>
+          <div class="meta-item">
+            <span>活动隧道</span>
+            <strong id="meta-tunnels">0 个</strong>
+          </div>
+          <div class="meta-item">
+            <span>运行时间</span>
+            <strong id="meta-uptime">-</strong>
+          </div>
         </div>
       </div>
     </aside>
-    <section class="content">
-      <section class="panel config">
-        <div class="panel-head">
-          <h2>连接配置</h2>
-          <span class="hint">填写后点击启动</span>
-        </div>
-        <form id="form">
-          <label class="wide">总控地址 <input name="controlUrl" placeholder="http://192.168.6.64:8088" required /></label>
-          <label>用户名 <input name="user" required /></label>
-          <label>密码 <input name="password" type="password" required /></label>
-          <label>刷新间隔 <input name="refresh" value="30s" /></label>
-          <div class="actions">
-            <button type="submit">启动连接</button>
-            <button type="button" class="danger" id="stop">停止</button>
-            <button type="button" class="secondary" id="reload">刷新</button>
+
+    <!-- Content Area -->
+    <section class="content-area">
+      <!-- Config Panel -->
+      <section class="glass-panel">
+        <h2>
+          <svg viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+          连接设置
+        </h2>
+        <form id="connect-form">
+          <div class="form-group full-width">
+            <label>总控面板地址</label>
+            <input name="controlUrl" type="url" placeholder="http://192.168.6.64:8088" required />
+          </div>
+          <div class="form-group">
+            <label>用户名</label>
+            <input name="user" type="text" placeholder="用户名" required />
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input name="password" type="password" placeholder="密码" required />
+          </div>
+          <div class="form-group">
+            <label>定时重连间隔</label>
+            <input name="refresh" type="text" value="30s" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" id="btn-start">启动客户端</button>
+            <button type="button" class="danger-btn" id="btn-stop">停止</button>
           </div>
         </form>
       </section>
-      <section class="panel logs-panel">
-        <div class="logs-head">
-          <h2>运行日志</h2>
-          <span class="hint">最近 300 条</span>
+
+      <!-- Active Tunnels Panel -->
+      <section class="glass-panel">
+        <h2>
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          本地启用中的穿透隧道
+        </h2>
+        <div class="tunnel-grid" id="tunnels-list">
+          <div class="empty-state">未连接总控服务</div>
         </div>
-        <pre id="logs">等待启动...</pre>
+      </section>
+
+      <!-- Logs Panel -->
+      <section class="glass-panel logs-panel">
+        <h2>
+          <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+          控制台输出
+        </h2>
+        <div class="logs-container" id="logs-view">等待连接...</div>
       </section>
     </section>
   </main>
+
   <script>
-    const form = document.querySelector("#form");
-    const statusEl = document.querySelector("#status");
-    const logsEl = document.querySelector("#logs");
-    const serverLabel = document.querySelector("#server-label");
-    const userLabel = document.querySelector("#user-label");
+    const form = document.querySelector("#connect-form");
+    const statusBadge = document.querySelector("#status-badge");
+    const tunnelsList = document.querySelector("#tunnels-list");
+    const logsView = document.querySelector("#logs-view");
+    
+    const metaServer = document.querySelector("#meta-server");
+    const metaUser = document.querySelector("#meta-user");
+    const metaTunnels = document.querySelector("#meta-tunnels");
+    const metaUptime = document.querySelector("#meta-uptime");
+    
+    let uptimeInterval = null;
+    let startedTime = null;
+
     const api = async (path, options = {}) => {
       const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+      if (!res.ok) {
+        const errorText = await res.json().catch(() => ({})).then(data => data.error || res.statusText);
+        throw new Error(errorText);
+      }
       return res.json();
     };
-    const render = (data) => {
-      form.controlUrl.value = data.config?.controlUrl || "";
-      form.user.value = data.config?.user || "";
-      form.refresh.value = data.config?.refresh || "30s";
-      serverLabel.textContent = data.config?.controlUrl || "-";
-      userLabel.textContent = data.config?.user || "-";
-      statusEl.textContent = data.running ? "运行中" : "未运行";
-      statusEl.classList.toggle("online", Boolean(data.running));
-      logsEl.textContent = (data.logs || []).join("\n") || "等待启动...";
-      logsEl.scrollTop = logsEl.scrollHeight;
+
+    const pad = (num) => String(num).padStart(2, '0');
+
+    const updateUptime = () => {
+      if (!startedTime) {
+        metaUptime.textContent = "-";
+        return;
+      }
+      const diff = Math.floor((new Date() - startedTime) / 1000);
+      const hrs = Math.floor(diff / 3600);
+      const mins = Math.floor((diff % 3600) / 60);
+      const secs = diff % 60;
+      metaUptime.textContent = pad(hrs) + ":" + pad(mins) + ":" + pad(secs);
     };
-    const refresh = async () => render(await api("/api/status"));
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
+
+    const formatLogLine = (line) => {
+      const match = line.match(/^(\d{2}:\d{2}:\d{2})\s(.*)$/);
+      if (!match) return '<div class="log-line"><span class="log-text">' + escapeHtml(line) + '</span></div>';
+      
+      const time = match[1];
+      let msg = match[2];
+      let level = 'info';
+
+      if (msg.includes("[ERROR]")) {
+        level = 'error';
+        msg = msg.replace("[ERROR] ", "");
+      } else if (msg.includes("[WARN]")) {
+        level = 'warn';
+        msg = msg.replace("[WARN] ", "");
+      } else if (msg.includes("[TRACE]")) {
+        level = 'trace';
+        msg = msg.replace("[TRACE] ", "");
+      } else if (msg.includes("[DEBUG]")) {
+        level = 'debug';
+        msg = msg.replace("[DEBUG] ", "");
+      } else if (msg.includes("[INFO]")) {
+        level = 'info';
+        msg = msg.replace("[INFO] ", "");
+      }
+
+      return '<div class="log-line"><span class="log-time">' + time + '</span><span class="log-level ' + level + '">[' + level.toUpperCase() + ']</span><span class="log-text">' + escapeHtml(msg) + '</span></div>';
+    };
+
+    const escapeHtml = (text) => {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    };
+
+    const render = (data) => {
+      // Inputs setup once
+      if (document.activeElement.tagName !== 'INPUT') {
+        if (data.config?.controlUrl) form.controlUrl.value = data.config.controlUrl;
+        if (data.config?.user) form.user.value = data.config.user;
+        if (data.config?.refresh) form.refresh.value = data.config.refresh;
+      }
+
+      // Sidebar meta update
+      metaServer.textContent = data.config?.controlUrl || "-";
+      metaUser.textContent = data.config?.user || "-";
+
+      // Status styling
+      if (data.running) {
+        statusBadge.textContent = "运行中";
+        statusBadge.className = "status-badge online";
+        if (!uptimeInterval && data.started) {
+          startedTime = new Date(data.started);
+          uptimeInterval = setInterval(updateUptime, 1000);
+          updateUptime();
+        }
+      } else {
+        statusBadge.textContent = "已停止";
+        statusBadge.className = "status-badge";
+        clearInterval(uptimeInterval);
+        uptimeInterval = null;
+        startedTime = null;
+        metaUptime.textContent = "-";
+      }
+
+      // Tunnels list rendering
+      if (data.running) {
+        if (data.tunnels && data.tunnels.length > 0) {
+          metaTunnels.textContent = data.tunnels.length + " 个";
+          tunnelsList.innerHTML = data.tunnels.map(t => {
+            const isDomain = t.mode === 'http' || t.mode === 'https';
+            const local = (t.localIp || '127.0.0.1') + ":" + t.localPort;
+            const remote = isDomain ? (t.domains?.join(', ') || '-') : "端口 " + t.remotePort;
+            return '<div class="tunnel-card">' +
+                     '<div class="tunnel-header">' +
+                       '<span class="tunnel-mode ' + t.mode + '">' + t.mode + '</span>' +
+                       '<span class="tunnel-status">已启用</span>' +
+                     '</div>' +
+                     '<div class="tunnel-addrs">' +
+                       '<div class="addr-row">' +
+                         '<span class="addr-label">本地</span>' +
+                         '<span class="addr-val">' + local + '</span>' +
+                       '</div>' +
+                       '<div class="addr-row">' +
+                         '<span class="addr-label">穿透</span>' +
+                         '<span class="addr-val" style="color:var(--accent-cyan)">' + remote + '</span>' +
+                       '</div>' +
+                     '</div>' +
+                     '<div class="tunnel-remark">' + (t.remark || '未命名隧道') + '</div>' +
+                   '</div>';
+          }).join('');
+        } else {
+          metaTunnels.textContent = "0 个";
+          tunnelsList.innerHTML = '<div class="empty-state">等待同步中，暂无活动隧道</div>';
+        }
+      } else {
+        metaTunnels.textContent = "0 个";
+        tunnelsList.innerHTML = '<div class="empty-state">客户端未启动，无活动隧道</div>';
+      }
+
+      // Console logs rendering
+      const isScrolledToBottom = logsView.scrollHeight - logsView.clientHeight <= logsView.scrollTop + 20;
+      logsView.innerHTML = (data.logs || []).map(formatLogLine).join("") || '<div class="log-line"><span class="log-text" style="color:var(--text-muted)">无控制台输出...</span></div>';
+      if (isScrolledToBottom) {
+        logsView.scrollTop = logsView.scrollHeight;
+      }
+    };
+
+    const refresh = async () => {
+      try {
+        const data = await api("/api/status");
+        render(data);
+      } catch (err) {
+        logsView.innerHTML = '<div class="log-line"><span class="log-level error">[ERROR]</span><span class="log-text">' + escapeHtml(err.message) + '</span></div>';
+      }
+    };
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
       const body = Object.fromEntries(new FormData(form).entries());
-      await api("/api/start", { method: "POST", body: JSON.stringify(body) });
-      await refresh();
+      try {
+        await api("/api/start", { method: "POST", body: JSON.stringify(body) });
+        refresh();
+      } catch (err) {
+        alert("启动失败: " + err.message);
+      }
     });
-    document.querySelector("#stop").addEventListener("click", async () => { await api("/api/stop", { method: "POST" }); await refresh(); });
-    document.querySelector("#reload").addEventListener("click", refresh);
-    refresh().catch((err) => logsEl.textContent = err.message);
-    setInterval(refresh, 2000);
+
+    document.querySelector("#btn-stop").addEventListener("click", async () => {
+      try {
+        await api("/api/stop", { method: "POST" });
+        refresh();
+      } catch (err) {
+        alert("停止失败: " + err.message);
+      }
+    });
+
+    // Run poll
+    refresh();
+    setInterval(refresh, 1500);
   </script>
 </body>
 </html>`
