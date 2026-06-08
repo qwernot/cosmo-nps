@@ -83,12 +83,14 @@ func main() {
 		if *noGUI {
 			log.Fatal("TUNNEL_USER/TUNNEL_PASSWORD or -user/-password is required")
 		}
+		hideConsoleWindow()
 		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh, *silent); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 	if *gui {
+		hideConsoleWindow()
 		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh, *silent); err != nil {
 			log.Fatal(err)
 		}

@@ -9,3 +9,6 @@ func setAutoStart(enabled bool) error {
 func isAutoStartEnabled() bool {
 	return false
 }
+
+func hideConsoleWindow() {}
+
