@@ -141,6 +141,10 @@ func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) er
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(launcherHTML))
 	})
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/x-icon")
+		_, _ = w.Write(generateIconBytes())
+	})
 	mux.HandleFunc("GET /api/status", globalState.status)
 	mux.HandleFunc("POST /api/start", globalState.start)
 	mux.HandleFunc("POST /api/stop", globalState.stop)
@@ -470,6 +474,7 @@ const launcherHTML = `<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tunnel Client Dashboard</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
