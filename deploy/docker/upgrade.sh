@@ -24,6 +24,9 @@ fi
 echo "pull: $IMAGE"
 docker pull "$IMAGE"
 
+echo "remove existing container if conflict"
+docker rm -f "$SERVICE" || true
+
 echo "restart: $SERVICE"
 $COMPOSE up -d "$SERVICE"
 
