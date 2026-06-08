@@ -76,19 +76,20 @@ func main() {
 	gui := flag.Bool("gui", false, "start local browser launcher UI")
 	noGUI := flag.Bool("no-gui", false, "disable launcher UI when credentials are missing")
 	uiAddr := flag.String("ui-addr", getenv("TUNNEL_CLIENT_UI_ADDR", "127.0.0.1:18090"), "launcher UI listen address")
+	silent := flag.Bool("silent", false, "start in system tray without opening browser")
 	flag.Parse()
 
 	if *username == "" || *password == "" {
 		if *noGUI {
 			log.Fatal("TUNNEL_USER/TUNNEL_PASSWORD or -user/-password is required")
 		}
-		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh); err != nil {
+		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh, *silent); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
 	if *gui {
-		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh); err != nil {
+		if err := runDesktopLauncher(*uiAddr, *controlURL, *refresh, *silent); err != nil {
 			log.Fatal(err)
 		}
 		return

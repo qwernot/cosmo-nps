@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +20,7 @@ import (
 	"time"
 
 	"github.com/astaxie/beego/logs"
+	"github.com/getlantern/systray"
 	"qwernot/tunnel-control/internal/core"
 )
 
@@ -38,6 +44,11 @@ type launcherState struct {
 var globalState = &launcherState{
 	logs: make([]string, 0),
 }
+
+var (
+	globalAddr string
+	mAutoStart *systray.MenuItem
+)
 
 func (s *launcherState) AppendLog(line string) {
 	s.mu.Lock()
@@ -106,7 +117,8 @@ func init() {
 	})
 }
 
-func runLauncher(addr, controlURL string, refresh time.Duration) error {
+func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) error {
+	globalAddr = addr
 	cfg := loadLauncherConfig()
 	if cfg.ControlURL == "" {
 		cfg.ControlURL = controlURL
@@ -132,17 +144,119 @@ func runLauncher(addr, controlURL string, refresh time.Duration) error {
 	mux.HandleFunc("POST /api/start", globalState.start)
 	mux.HandleFunc("POST /api/stop", globalState.stop)
 
-	url := "http://" + addr
-	log.Printf("tunnel-client launcher listening on %s", url)
-	go openBrowser(url)
-	return http.ListenAndServe(addr, mux)
+	// Start HTTP server in background thread
+	go func() {
+		if err := http.ListenAndServe(addr, mux); err != nil {
+			log.Printf("HTTP server stopped: %v", err)
+		}
+	}()
+
+	// Auto-connect on startup if config is complete
+	if cfg.ControlURL != "" && cfg.User != "" && cfg.Password != "" {
+		log.Printf("Saved config found. Auto-connecting in background...")
+		refreshDur, err := time.ParseDuration(cfg.Refresh)
+		if err != nil {
+			refreshDur = 30 * time.Second
+		}
+		globalState.mu.Lock()
+		ctx, cancel := context.WithCancel(context.Background())
+		globalState.cancel = cancel
+		globalState.running = true
+		globalState.started = time.Now()
+		globalState.mu.Unlock()
+
+		go func() {
+			err := runClientCtx(ctx, cfg.ControlURL, cfg.User, cfg.Password, refreshDur)
+			globalState.mu.Lock()
+			globalState.running = false
+			globalState.cancel = nil
+			globalState.tunnels = nil
+			if err != nil {
+				globalState.appendLocked("[ERROR] launcher: tunnel-client exited with error: " + err.Error())
+			} else {
+				globalState.appendLocked("[INFO] launcher: tunnel-client stopped")
+			}
+			globalState.mu.Unlock()
+		}()
+	}
+
+	// Open browser if not in silent mode
+	if !silent {
+		go openBrowser("http://" + addr)
+	}
+
+	// Start system tray (blocks on main thread)
+	systray.Run(onReady, onExit)
+	return nil
+}
+
+func onReady() {
+	systray.SetTooltip("Tunnel Client - NPS Multi-Node Tunnel")
+	systray.SetIcon(generateIconBytes())
+
+	mOpen := systray.AddMenuItem("打开主面板 (Open Dashboard)", "打开客户端网页管理主面板")
+	mAutoStart = systray.AddMenuItemCheckbox("开机自启动 (Boot Startup)", "设置开机自启动", isAutoStartEnabled())
+	systray.AddSeparator()
+	mExit := systray.AddMenuItem("退出 (Exit)", "关闭并退出客户端")
+
+	go func() {
+		for {
+			select {
+			case <-mOpen.ClickedCh:
+				openBrowser("http://" + globalAddr)
+			case <-mAutoStart.ClickedCh:
+				enabled := !isAutoStartEnabled()
+				err := setAutoStart(enabled)
+				if err != nil {
+					log.Printf("Failed to toggle auto start: %v", err)
+				} else {
+					if enabled {
+						mAutoStart.Check()
+					} else {
+						mAutoStart.Uncheck()
+					}
+				}
+			case <-mExit.ClickedCh:
+				systray.Quit()
+			}
+		}
+	}()
+}
+
+func onExit() {
+	closeAllClients()
+	os.Exit(0)
+}
+
+func generateIconBytes() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{13, 18, 38, 255}}, image.Point{}, draw.Src)
+	cyan := color.RGBA{34, 211, 238, 255}
+	blue := color.RGBA{59, 130, 246, 255}
+	for x := 0; x < 64; x++ {
+		for y := 0; y < 64; y++ {
+			dx := float64(x - 32)
+			dy := float64(y - 32)
+			dist := dx*dx + dy*dy
+			if dist < 225 {
+				img.Set(x, y, cyan)
+			} else if dist < 400 {
+				img.Set(x, y, blue)
+			}
+		}
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
 }
 
 func (s *launcherState) status(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	hiddenCfg := s.cfg
+	hiddenCfg.Password = ""
 	writeLauncherJSON(w, map[string]any{
-		"config":  s.cfg,
+		"config":  hiddenCfg,
 		"running": s.running,
 		"started": s.started,
 		"tunnels": s.tunnels,
@@ -228,12 +342,10 @@ func loadLauncherConfig() launcherConfig {
 	if err == nil {
 		_ = json.Unmarshal(b, &cfg)
 	}
-	cfg.Password = ""
 	return cfg
 }
 
 func saveLauncherConfig(cfg launcherConfig) error {
-	cfg.Password = ""
 	path := launcherConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
