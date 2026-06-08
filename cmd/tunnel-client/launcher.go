@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -230,7 +231,13 @@ func onExit() {
 	os.Exit(0)
 }
 
+//go:embed app.ico
+var appIconBytes []byte
+
 func generateIconBytes() []byte {
+	if len(appIconBytes) > 0 {
+		return appIconBytes
+	}
 	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{13, 18, 38, 255}}, image.Point{}, draw.Src)
 	cyan := color.RGBA{34, 211, 238, 255}
