@@ -17,3 +17,6 @@ Thumbs.db
 *.log
 *.tmp
 *.exe
+
+[Bb]in/
+[Oo]bj/
