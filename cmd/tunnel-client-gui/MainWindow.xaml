@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="Tunnel Client" Height="660" Width="980"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        WindowStartupLocation="CenterScreen" Icon="app.ico">
+        WindowStartupLocation="CenterScreen">
     
     <Window.Resources>
         <!-- ScrollBar sleek styling -->
