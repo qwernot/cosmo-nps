@@ -320,7 +320,13 @@
                 
                 <!-- Logo & Brand in Title Bar -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <Border Width="28" Height="28" Background="LinearGradient(135deg, #06B6D4, #2563EB)" CornerRadius="8">
+                    <Border Width="28" Height="28" CornerRadius="8">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#06B6D4" Offset="0"/>
+                                <GradientStop Color="#2563EB" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
                         <Path Data="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                     </Border>
                     <TextBlock Text="NPS 隧道客户端" Margin="10,0,0,0" Foreground="White" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
