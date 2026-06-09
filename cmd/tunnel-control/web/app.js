@@ -113,9 +113,6 @@ async function refresh() {
   if (state.view === "dashboard" || state.view === "users" || state.view === "tunnels") {
     requests.clients = api("/api/clients");
   }
-  if (state.view === "dashboard" || state.view === "tunnels") {
-    requests.availability = api("/api/availability");
-  }
   if (isAdmin() && state.view === "logs") {
     requests.logs = loadLogs(false);
   }
@@ -127,10 +124,19 @@ async function refresh() {
     if (key === "tunnels") state.tunnels = value;
     if (key === "diagnostics") state.diagnostics = value;
     if (key === "clients") state.clients = value;
-    if (key === "availability") state.availability = value;
     if (key === "logs") state.logs = value;
   }
   render();
+
+  // 异步获取可用性状态，不阻塞页面基础渲染
+  if (state.view === "dashboard" || state.view === "tunnels") {
+    api("/api/availability")
+      .then((value) => {
+        state.availability = value;
+        render();
+      })
+      .catch((err) => console.error("可用性检测失败:", err));
+  }
 }
 
 function render() {
