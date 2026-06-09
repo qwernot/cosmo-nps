@@ -141,8 +141,6 @@ async function refresh() {
 
 function render() {
   $("#session-user").textContent = `${state.me.name} (${state.me.role})`;
-  const client = state.runtime?.client || {};
-  $("#runtime-server").textContent = `${client.serverAddr || "-"}:${client.npsServerPort || "-"}`;
   $$(".admin-only").forEach((el) => el.classList.toggle("hidden", !isAdmin()));
   if (!isAdmin() && (state.view === "users" || state.view === "nodes" || state.view === "logs")) {
     switchView("dashboard");

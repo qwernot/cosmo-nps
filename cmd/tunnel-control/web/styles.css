@@ -200,18 +200,36 @@ select[readonly] {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.02);
-  display: grid;
-  gap: 6px;
+  transition: all 0.25s ease;
 }
 
-.runtime span {
+.runtime:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.runtime a.github-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
-  font-size: 12px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.2s ease;
 }
 
-.runtime strong {
-  overflow-wrap: anywhere;
-  color: var(--muted-strong);
+.runtime a.github-link svg {
+  transition: transform 0.2s ease;
+}
+
+.runtime:hover a.github-link {
+  color: #ffffff;
+}
+
+.runtime:hover a.github-link svg {
+  transform: scale(1.1);
 }
 
 .main {
