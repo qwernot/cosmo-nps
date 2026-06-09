@@ -251,6 +251,7 @@ function renderNodes() {
       <td>${nodeSyncBadge(node)}</td>
       <td>
         <div class="cell-actions">
+          ${node.id !== "local" ? `<button class="button small" data-deploy-node="${escapeHtml(node.id)}" data-node-token="${escapeHtml(node.token)}">部署</button>` : ""}
           <button class="button small secondary" data-edit-node="${escapeHtml(node.id)}">编辑</button>
           <button class="button small danger" data-delete-node="${escapeHtml(node.id)}" ${node.id === "local" ? "disabled" : ""}>删除</button>
         </div>
@@ -776,9 +777,31 @@ async function exportConfigs() {
   toast(`已导出到 ${result.dir}`);
 }
 
+function openDeployModal(id, token) {
+  const origin = window.location.origin;
+  const cmd = `curl -fsSL "${origin}/api/agent/bootstrap?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}" | bash`;
+  const downloadLink = `${origin}/api/agent/download`;
+  
+  $("#deploy-cmd-text").textContent = cmd;
+  $("#manual-download-link").href = downloadLink;
+  $("#deploy-modal").classList.add("show");
+}
+
+function closeDeployModal() {
+  $("#deploy-modal").classList.remove("show");
+}
+
+async function copyDeployCommand() {
+  const text = $("#deploy-cmd-text").textContent;
+  if (!text) return;
+  await navigator.clipboard.writeText(text);
+  toast("部署命令已复制到剪贴板");
+}
+
 document.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
+  if (target.dataset.deployNode) openDeployModal(target.dataset.deployNode, target.dataset.nodeToken);
   if (target.dataset.view) switchView(target.dataset.view);
   if (target.dataset.jump) switchView(target.dataset.jump);
   if (target.dataset.editUser) editUser(target.dataset.editUser);
@@ -809,6 +832,12 @@ $("#refresh-logs").addEventListener("click", () => loadLogs(true).then(() => toa
 $("#clear-logs").addEventListener("click", () => clearLogs().catch((err) => toast(err.message)));
 $("#logs-query").addEventListener("keydown", (event) => {
   if (event.key === "Enter") loadLogs(true).catch((err) => toast(err.message));
+});
+
+$("#close-deploy-modal").addEventListener("click", closeDeployModal);
+$("#copy-deploy-cmd").addEventListener("click", () => copyDeployCommand().catch((err) => toast(err.message)));
+$("#deploy-modal").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeDeployModal();
 });
 
 boot();

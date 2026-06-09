@@ -788,3 +788,159 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+/* 模态弹窗背景遮罩 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 15, 0.75);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.modal-backdrop.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 弹窗容器 */
+.modal {
+  width: min(580px, 92%);
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 24px;
+  transform: translateY(20px);
+  transition: transform 0.25s ease;
+}
+
+.modal-backdrop.show .modal {
+  transform: translateY(0);
+}
+
+/* 弹窗头部 */
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-head .close-btn {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.modal-head .close-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 弹窗主体 */
+.modal-desc {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted-strong);
+  margin-bottom: 16px;
+}
+
+/* 代码复制框 */
+.code-box {
+  background: #04060c;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.code-box pre {
+  margin: 0;
+  overflow-x: auto;
+  font-family: monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #a78bfa;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.code-box button {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.code-box button:hover {
+  background: var(--accent-strong);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.45);
+}
+
+/* 部署说明与提示 */
+.manual-tip {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 16px;
+}
+
+.manual-tip h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.manual-tip ul {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.manual-tip li {
+  margin-bottom: 4px;
+}
+
+.manual-tip a {
+  color: var(--accent-strong);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--accent-strong);
+  transition: all 0.2s;
+}
+
+.manual-tip a:hover {
+  color: #fff;
+  border-bottom-style: solid;
+}

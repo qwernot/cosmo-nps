@@ -123,6 +123,8 @@ func main() {
 	mux.HandleFunc("GET /api/diagnostics", api.diagnostics)
 	mux.HandleFunc("GET /api/clients", api.listClients)
 	mux.HandleFunc("GET /api/client/bootstrap", api.clientBootstrap)
+	mux.HandleFunc("GET /api/agent/bootstrap", api.agentBootstrap)
+	mux.HandleFunc("GET /api/agent/download", api.downloadAgent)
 	mux.HandleFunc("GET /api/availability", api.listAvailability)
 	mux.HandleFunc("GET /api/runtime", api.runtimeInfo)
 	mux.HandleFunc("GET /api/logs", api.listLogs)
@@ -1708,6 +1710,159 @@ func (a *apiServer) exportFRPUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_, _ = w.Write(append(b, '\n'))
+}
+
+func (a *apiServer) downloadAgent(w http.ResponseWriter, r *http.Request) {
+	path := "/usr/local/bin/tunnel-agent"
+	if _, err := os.Stat(path); err != nil {
+		path = "./tunnel-agent"
+		if _, err := os.Stat(path); err != nil {
+			path = "./tunnel-agent.exe"
+			if _, err := os.Stat(path); err != nil {
+				writeErrorText(w, http.StatusNotFound, "tunnel-agent binary not found")
+				return
+			}
+		}
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename=tunnel-agent")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, path)
+}
+
+func (a *apiServer) agentBootstrap(w http.ResponseWriter, r *http.Request) {
+	nodeID := strings.TrimSpace(r.URL.Query().Get("id"))
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if nodeID == "" || token == "" {
+		writeErrorText(w, http.StatusBadRequest, "id and token are required")
+		return
+	}
+
+	node, ok := a.store.GetNode(nodeID)
+	if !ok {
+		writeErrorText(w, http.StatusNotFound, "node not found")
+		return
+	}
+	if node.Token != token {
+		writeErrorText(w, http.StatusUnauthorized, "invalid node token")
+		return
+	}
+
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	controlURL := scheme + "://" + r.Host
+	if override := r.URL.Query().Get("control_url"); override != "" {
+		controlURL = override
+	}
+
+	npsPort := node.Runtime.NPSServerPort
+	if npsPort <= 0 {
+		npsPort = 18024
+	}
+	npsTLSPort := npsPort + 1
+	npsHTTPPort := node.Runtime.NPSHTTPProxyPort
+	if npsHTTPPort <= 0 {
+		npsHTTPPort = 9080
+	}
+	npsHTTPSPort := node.Runtime.NPSHTTPSPort
+	if npsHTTPSPort <= 0 {
+		npsHTTPSPort = 9443
+	}
+
+	script := fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+
+CONTROL_URL=%q
+NODE_ID=%q
+NODE_TOKEN=%q
+NPS_BRIDGE_PORT=%d
+NPS_TLS_BRIDGE_PORT=%d
+NPS_HTTP_PORT=%d
+NPS_HTTPS_PORT=%d
+
+echo "=== Tunnel Agent 自动化一键部署脚本 ==="
+echo "节点 ID: $NODE_ID"
+echo "主控地址: $CONTROL_URL"
+
+# 1. 优先使用 Docker 启动
+if command -v docker &>/dev/null; then
+  echo "[+] 检测到 Docker，将以容器化模式部署节点..."
+  
+  # 清理同名冲突容器
+  docker rm -f "tunnel-agent-$NODE_ID" &>/dev/null || true
+  
+  # 运行容器 (使用 host 网络与主控共享端口并映射数据卷)
+  docker run -d \
+    --name "tunnel-agent-$NODE_ID" \
+    --network host \
+    --restart unless-stopped \
+    -v "/opt/tunnel-agent/data-$NODE_ID:/app/data" \
+    -e CONTROL_URL="$CONTROL_URL" \
+    -e NODE_ID="$NODE_ID" \
+    -e NODE_TOKEN="$NODE_TOKEN" \
+    -e NPS_BRIDGE_PORT="$NPS_BRIDGE_PORT" \
+    -e NPS_TLS_BRIDGE_PORT="$NPS_TLS_BRIDGE_PORT" \
+    -e NPS_HTTP_PORT="$NPS_HTTP_PORT" \
+    -e NPS_HTTPS_PORT="$NPS_HTTPS_PORT" \
+    darkver8/tunnel-all:latest \
+    /usr/local/bin/tunnel-agent
+    
+  echo "=== 节点容器部署成功！ ==="
+  echo "查看运行日志命令: docker logs -f tunnel-agent-$NODE_ID"
+  exit 0
+fi
+
+# 2. 如果无 Docker 环境，回退为本机 Systemd 二进制部署
+echo "[!] 未检测到 Docker，正在尝试通过 Systemd 安装本地服务..."
+
+mkdir -p /opt/tunnel-agent/bin
+mkdir -p "/opt/tunnel-agent/data-$NODE_ID"
+
+# 下载二进制
+echo "[+] 正在下载对应架构的 tunnel-agent 二进制..."
+if ! curl -fsSL "$CONTROL_URL/api/agent/download" -o /opt/tunnel-agent/bin/tunnel-agent; then
+  echo "[-] 二进制下载失败，请确认主控地址能够正常访问。"
+  exit 1
+fi
+chmod +x /opt/tunnel-agent/bin/tunnel-agent
+
+# 创建 Systemd service
+echo "[+] 正在配置 Systemd 服务..."
+cat <<EOF > "/etc/systemd/system/tunnel-agent-$NODE_ID.service"
+[Unit]
+Description=Tunnel Agent ($NODE_ID)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/tunnel-agent/bin/tunnel-agent \\
+  -control-url=$CONTROL_URL \\
+  -node-id=$NODE_ID \\
+  -node-token=$NODE_TOKEN \\
+  -data-dir=/opt/tunnel-agent/data-$NODE_ID \\
+  -nps-port=$NPS_BRIDGE_PORT \\
+  -nps-http-port=$NPS_HTTP_PORT \\
+  -nps-https-port=$NPS_HTTPS_PORT
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 载入并启动
+systemctl daemon-reload
+systemctl enable --now "tunnel-agent-$NODE_ID"
+
+echo "=== 节点 Systemd 服务部署成功！ ==="
+echo "查看服务状态命令: systemctl status tunnel-agent-$NODE_ID"
+echo "查看运行日志命令: journalctl -u tunnel-agent-$NODE_ID -f"
+`, controlURL, nodeID, token, npsPort, npsTLSPort, npsHTTPPort, npsHTTPSPort)
+
+	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(script))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
