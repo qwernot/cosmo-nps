@@ -50,6 +50,7 @@ func onReady() {
 
 func onExit() {
 	closeAllClients()
+	closeDashboardWindow()
 	os.Exit(0)
 }
 

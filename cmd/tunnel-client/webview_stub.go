@@ -7,3 +7,5 @@ func openDashboardWindow(url string) {
 }
 
 func allowSetForegroundWindow() {}
+
+func closeDashboardWindow() {}
