@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -65,6 +66,24 @@ func main() {
 		log.Printf("nps stopped: %v", err)
 	}()
 	go serveApplyAPI(*apiAddr, *nodeID, *nodeToken, &syncMu)
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if strings.TrimSpace(*controlURL) == "" {
+					continue
+				}
+				if err := reportTrafficOnce(*controlURL, *nodeID, *nodeToken); err != nil {
+					log.Printf("report traffic failed: %v", err)
+				}
+			}
+		}
+	}()
 
 	time.Sleep(2 * time.Second)
 	if strings.TrimSpace(*controlURL) == "" {
@@ -264,4 +283,38 @@ func getenvInt(key string, fallback int) int {
 		return value
 	}
 	return fallback
+}
+
+func reportTrafficOnce(controlURL, nodeID, nodeToken string) error {
+	tunnels, users := integrated.CollectNPSTraffic()
+	if len(tunnels) == 0 && len(users) == 0 {
+		return nil
+	}
+	report := core.TrafficReport{
+		NodeID:  nodeID,
+		Tunnels: tunnels,
+		Users:   users,
+	}
+	b, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, controlURL+"/api/agent/report", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+nodeToken)
+
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("central returned status %s", resp.Status)
+	}
+	return nil
 }

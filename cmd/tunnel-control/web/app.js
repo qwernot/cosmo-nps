@@ -201,6 +201,7 @@ function renderUsers() {
       <td title="${escapeHtml(formatDomains(u.domainPools))}">${escapeHtml(formatDomains(u.domainPools))}</td>
       <td>${u.maxPorts || 0}</td>
       <td>${resourceSummary(u.name)}</td>
+      <td>${userTrafficSummary(u)}</td>
       <td>
         <span class="badge ${u.hasNpsVerifyKey ? "ok" : "warn"}">NPS</span>
       </td>
@@ -394,6 +395,7 @@ function renderTunnels() {
       <td title="${escapeHtml(tunnelEntry(t))}">${escapeHtml(tunnelEntry(t))}</td>
       <td>${escapeHtml(`${t.localIp || "-"}:${t.localPort || "-"}`)}</td>
       <td>${tunnelAvailabilityBadge(t)}</td>
+      <td>${tunnelTrafficSummary(t)}</td>
       <td>${statusBadge(t.enabled)}</td>
       <td>
         <div class="cell-actions">
@@ -402,7 +404,7 @@ function renderTunnels() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(10);
+  `).join("") || emptyRow(11);
 }
 
 function renderLogs() {
@@ -510,6 +512,8 @@ function clearUserForm() {
   $('#user-form input[name="enabled"]').checked = true;
   $('#user-form select[name="role"]').value = "user";
   $('#user-form input[name="maxPorts"]').value = "3";
+  $('#user-form input[name="rateLimit"]').value = "0";
+  $('#user-form input[name="flowLimit"]').value = "0";
 }
 
 function clearNodeForm() {
@@ -551,6 +555,8 @@ function editUser(name) {
   field(form, "domainPool").value = formatDomains(user.domainPools);
   field(form, "npsVerifyKey").value = user.npsVerifyKey || "";
   field(form, "enabled").checked = user.enabled;
+  field(form, "rateLimit").value = user.rateLimit || 0;
+  field(form, "flowLimit").value = user.flowLimit || 0;
   switchView("users");
 }
 
@@ -662,6 +668,8 @@ async function saveUser(event) {
     domainPool: data.domainPool.trim(),
     maxPorts: Number(data.maxPorts || 0),
     npsVerifyKey: data.npsVerifyKey.trim(),
+    rateLimit: Number(data.rateLimit || 0),
+    flowLimit: Number(data.flowLimit || 0),
   };
   await api("/api/users", { method: "POST", body: JSON.stringify(body) });
   clearUserForm();
@@ -839,6 +847,88 @@ $("#copy-deploy-cmd").addEventListener("click", () => copyDeployCommand().catch(
 $("#deploy-modal").addEventListener("click", (event) => {
   if (event.target === event.currentTarget) closeDeployModal();
 });
+
+function formatBytes(bytes) {
+  if (bytes === 0 || !bytes) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+function formatSpeed(bytesPerSec) {
+  if (!bytesPerSec || bytesPerSec <= 0) return "静默";
+  if (bytesPerSec < 1024) return bytesPerSec + " B/s";
+  const k = 1024;
+  const sizes = ["B/s", "KB/s", "MB/s", "GB/s"];
+  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+  return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+function userTrafficSummary(u) {
+  const rateLimitText = u.rateLimit > 0 ? `${u.rateLimit} Mbps` : "不限速";
+  const flowUsedText = formatBytes(u.flowUsed || 0);
+  
+  if (u.flowLimit > 0) {
+    const limitBytes = u.flowLimit * 1024 * 1024 * 1024;
+    const percent = Math.min(100, Math.round((u.flowUsed || 0) / limitBytes * 100));
+    return `
+      <div class="traffic-summary">
+        <div class="traffic-limits">
+          <span class="badge ok">${rateLimitText}</span>
+          <span class="traffic-total">${flowUsedText} / ${u.flowLimit} GB</span>
+        </div>
+        <div class="traffic-progress-bar" title="已用 ${percent}%">
+          <div class="bar-fill" style="width: ${percent}%;"></div>
+        </div>
+      </div>
+    `;
+  } else {
+    return `
+      <div class="traffic-summary">
+        <div class="traffic-limits">
+          <span class="badge ok">${rateLimitText}</span>
+          <span class="traffic-total">${flowUsedText} / 不限</span>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function tunnelTrafficSummary(t) {
+  const availability = availabilityForTunnel(t.id);
+  if (!availability) {
+    return `
+      <div class="tunnel-traffic">
+        <span class="traffic-total">0 B</span>
+        <span class="traffic-speed speed-silent">静默</span>
+      </div>
+    `;
+  }
+  
+  const totalFlow = (availability.inletFlow || 0) + (availability.exportFlow || 0);
+  const totalFlowText = formatBytes(totalFlow);
+  
+  const upSpeed = formatSpeed(availability.inletSpeed || 0);
+  const downSpeed = formatSpeed(availability.exportSpeed || 0);
+  
+  let speedText = "静默";
+  if (availability.inletSpeed > 0 || availability.exportSpeed > 0) {
+    const upStr = availability.inletSpeed > 0 ? `↑${upSpeed}` : "";
+    const downStr = availability.exportSpeed > 0 ? `↓${downSpeed}` : "";
+    speedText = [upStr, downStr].filter(Boolean).join(" ");
+  }
+  
+  const speedClass = speedText === "静默" ? "speed-silent" : "speed-active";
+  
+  return `
+    <div class="tunnel-traffic">
+      <span class="traffic-total">${totalFlowText}</span>
+      <span class="traffic-speed ${speedClass}">${speedText}</span>
+    </div>
+  `;
+}
 
 boot();
 updateTunnelModeFields();

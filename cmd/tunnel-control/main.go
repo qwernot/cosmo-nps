@@ -80,6 +80,8 @@ func main() {
 		store:         store,
 		sessions:      newSessionStore(),
 		remoteClients: map[string][]integrated.ClientStatus{},
+		tunnelTraffic: map[string]*tunnelTrafficState{},
+		userTraffic:   map[string]*userTrafficState{},
 		frpUserOut:    *frpUsersPath,
 		npsClientOut:  *npsClientsPath,
 		configOut:     *configOutDir,
@@ -125,6 +127,7 @@ func main() {
 	mux.HandleFunc("GET /api/client/bootstrap", api.clientBootstrap)
 	mux.HandleFunc("GET /api/agent/bootstrap", api.agentBootstrap)
 	mux.HandleFunc("GET /api/agent/download", api.downloadAgent)
+	mux.HandleFunc("POST /api/agent/report", api.reportTraffic)
 	mux.HandleFunc("GET /api/availability", api.listAvailability)
 	mux.HandleFunc("GET /api/runtime", api.runtimeInfo)
 	mux.HandleFunc("GET /api/logs", api.listLogs)
@@ -143,6 +146,26 @@ func main() {
 	log.Fatal(http.ListenAndServe(*addr, logRequest(api.authMiddleware(mux))))
 }
 
+type tunnelTrafficState struct {
+	LastInletFlow  int64
+	LastExportFlow int64
+	LastSeenAt     time.Time
+	InletFlow      int64
+	ExportFlow     int64
+	InletSpeed     int64
+	ExportSpeed    int64
+}
+
+type userTrafficState struct {
+	LastInletFlow  int64
+	LastExportFlow int64
+	LastSeenAt     time.Time
+	InletFlow      int64
+	ExportFlow     int64
+	InletSpeed     int64
+	ExportSpeed    int64
+}
+
 type apiServer struct {
 	store         *core.Store
 	sessions      *sessionStore
@@ -156,6 +179,9 @@ type apiServer struct {
 	remoteMu      sync.RWMutex
 	remoteClients map[string][]integrated.ClientStatus
 	runtime       core.RuntimeConfig
+	trafficMu     sync.Mutex
+	tunnelTraffic map[string]*tunnelTrafficState
+	userTraffic   map[string]*userTrafficState
 }
 
 type agentSyncBundle struct {
@@ -229,6 +255,10 @@ type tunnelAvailability struct {
 	ClientState string                  `json:"clientState"`
 	Entry       tunnelAvailabilityProbe `json:"entry"`
 	CheckedAt   string                  `json:"checkedAt"`
+	InletFlow   int64                   `json:"inletFlow"`
+	ExportFlow  int64                   `json:"exportFlow"`
+	InletSpeed  int64                   `json:"inletSpeed"`
+	ExportSpeed int64                   `json:"exportSpeed"`
 }
 
 type tunnelAvailabilityProbe struct {
@@ -426,6 +456,8 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		MaxPorts     int              `json:"maxPorts"`
 		FRPToken     string           `json:"frpToken"`
 		NPSVerifyKey string           `json:"npsVerifyKey"`
+		RateLimit    int              `json:"rateLimit"`
+		FlowLimit    int64            `json:"flowLimit"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -453,6 +485,11 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	existing, ok := a.store.GetUser(req.Name)
+	var existingFlowUsed int64
+	if ok {
+		existingFlowUsed = existing.FlowUsed
+	}
 	user, err := a.store.UpsertUser(core.User{
 		Name:         req.Name,
 		Password:     req.Password,
@@ -463,6 +500,9 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		MaxPorts:     req.MaxPorts,
 		FRPToken:     req.FRPToken,
 		NPSVerifyKey: req.NPSVerifyKey,
+		RateLimit:    req.RateLimit,
+		FlowLimit:    req.FlowLimit,
+		FlowUsed:     existingFlowUsed,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -951,9 +991,22 @@ func (a *apiServer) listAvailability(w http.ResponseWriter, r *http.Request) {
 		tunnels = filterTunnelsByUser(tunnels, current.Name)
 	}
 	liveClients := a.allClientStatuses()
+
+	list := availabilityFor(tunnels, liveClients, a.runtimeForTunnel)
+	a.trafficMu.Lock()
+	for i := range list {
+		if state, exists := a.tunnelTraffic[list[i].TunnelID]; exists {
+			list[i].InletFlow = state.InletFlow
+			list[i].ExportFlow = state.ExportFlow
+			list[i].InletSpeed = state.InletSpeed
+			list[i].ExportSpeed = state.ExportSpeed
+		}
+	}
+	a.trafficMu.Unlock()
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"generatedAt":  time.Now().UTC(),
-		"availability": availabilityFor(tunnels, liveClients, a.runtimeForTunnel),
+		"availability": list,
 	})
 }
 
@@ -1884,4 +1937,139 @@ func logRequest(next http.Handler) http.Handler {
 		log.Printf("%s %s", r.Method, r.URL.Path)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (a *apiServer) reportTraffic(w http.ResponseWriter, r *http.Request) {
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	token := strings.TrimPrefix(auth, "Bearer ")
+	if token == "" {
+		writeErrorText(w, http.StatusUnauthorized, "invalid node token")
+		return
+	}
+
+	var req core.TrafficReport
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	node, ok := a.store.GetNode(req.NodeID)
+	if !ok || node.Token != token {
+		writeErrorText(w, http.StatusUnauthorized, "node not found or token mismatch")
+		return
+	}
+
+	now := time.Now().UTC()
+	a.trafficMu.Lock()
+	defer a.trafficMu.Unlock()
+
+	for _, traffic := range req.Tunnels {
+		state, exists := a.tunnelTraffic[traffic.TunnelID]
+		if !exists {
+			state = &tunnelTrafficState{
+				LastSeenAt: now,
+			}
+			a.tunnelTraffic[traffic.TunnelID] = state
+		}
+
+		timeDelta := now.Sub(state.LastSeenAt).Seconds()
+		if timeDelta > 0.5 {
+			if traffic.InletFlow >= state.InletFlow {
+				state.InletSpeed = int64(float64(traffic.InletFlow-state.InletFlow) / timeDelta)
+			} else {
+				state.InletSpeed = 0
+			}
+			if traffic.ExportFlow >= state.ExportFlow {
+				state.ExportSpeed = int64(float64(traffic.ExportFlow-state.ExportFlow) / timeDelta)
+			} else {
+				state.ExportSpeed = 0
+			}
+		}
+
+		state.InletFlow = traffic.InletFlow
+		state.ExportFlow = traffic.ExportFlow
+		state.LastSeenAt = now
+	}
+
+	dirtyUsers := false
+	for _, traffic := range req.Users {
+		state, exists := a.userTraffic[traffic.UserName]
+		if !exists {
+			state = &userTrafficState{
+				LastSeenAt: now,
+			}
+			a.userTraffic[traffic.UserName] = state
+		}
+
+		timeDelta := now.Sub(state.LastSeenAt).Seconds()
+		if timeDelta > 0.5 {
+			if traffic.InletFlow >= state.InletFlow {
+				state.InletSpeed = int64(float64(traffic.InletFlow-state.InletFlow) / timeDelta)
+			} else {
+				state.InletSpeed = 0
+			}
+			if traffic.ExportFlow >= state.ExportFlow {
+				state.ExportSpeed = int64(float64(traffic.ExportFlow-state.ExportFlow) / timeDelta)
+			} else {
+				state.ExportSpeed = 0
+			}
+		}
+
+		var deltaIn, deltaOut int64
+		if traffic.InletFlow >= state.InletFlow {
+			deltaIn = traffic.InletFlow - state.InletFlow
+		} else {
+			deltaIn = traffic.InletFlow
+		}
+		if traffic.ExportFlow >= state.ExportFlow {
+			deltaOut = traffic.ExportFlow - state.ExportFlow
+		} else {
+			deltaOut = traffic.ExportFlow
+		}
+
+		state.InletFlow = traffic.InletFlow
+		state.ExportFlow = traffic.ExportFlow
+		state.LastSeenAt = now
+
+		if deltaIn > 0 || deltaOut > 0 {
+			user, ok := a.store.GetUser(traffic.UserName)
+			if ok {
+				newUsed := user.FlowUsed + deltaIn + deltaOut
+				limitBytes := user.FlowLimit * 1024 * 1024 * 1024
+				enabled := user.Enabled
+				if limitBytes > 0 && newUsed >= limitBytes && user.Enabled {
+					enabled = false
+					log.Printf("user %s traffic limit exceeded (used %d >= limit %d), automatically disabling user.", user.Name, newUsed, limitBytes)
+				}
+
+				_, _ = a.store.UpsertUser(core.User{
+					Name:         user.Name,
+					Role:         user.Role,
+					Enabled:      enabled,
+					PortPools:    user.PortPools,
+					DomainPools:  user.DomainPools,
+					MaxPorts:     user.MaxPorts,
+					FRPToken:     user.FRPToken,
+					NPSVerifyKey: user.NPSVerifyKey,
+					RateLimit:    user.RateLimit,
+					FlowLimit:    user.FlowLimit,
+					FlowUsed:     newUsed,
+				})
+				if !enabled && user.Enabled {
+					dirtyUsers = true
+				}
+			}
+		}
+	}
+
+	if dirtyUsers {
+		go func() {
+			if _, err := a.syncEngineUsers(); err != nil {
+				log.Printf("sync user flow exceed state failed: %v", err)
+			}
+			a.pushRemoteNodesAsync()
+		}()
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

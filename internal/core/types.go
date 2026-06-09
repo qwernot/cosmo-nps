@@ -202,6 +202,9 @@ type User struct {
 	MaxPorts     int         `json:"maxPorts,omitempty"`
 	FRPToken     string      `json:"frpToken,omitempty"`
 	NPSVerifyKey string      `json:"npsVerifyKey,omitempty"`
+	RateLimit    int         `json:"rateLimit,omitempty"`
+	FlowLimit    int64       `json:"flowLimit,omitempty"`
+	FlowUsed     int64       `json:"flowUsed,omitempty"`
 	CreatedAt    time.Time   `json:"createdAt"`
 	UpdatedAt    time.Time   `json:"updatedAt"`
 }
@@ -216,6 +219,9 @@ type PublicUser struct {
 	HasPassword     bool        `json:"hasPassword"`
 	HasFRPToken     bool        `json:"hasFrpToken"`
 	HasNPSVerifyKey bool        `json:"hasNpsVerifyKey"`
+	RateLimit       int         `json:"rateLimit,omitempty"`
+	FlowLimit       int64       `json:"flowLimit,omitempty"`
+	FlowUsed        int64       `json:"flowUsed,omitempty"`
 	CreatedAt       time.Time   `json:"createdAt"`
 	UpdatedAt       time.Time   `json:"updatedAt"`
 }
@@ -280,7 +286,28 @@ func Public(u *User) PublicUser {
 		HasPassword:     u.Password != "" || u.PasswordHash != "",
 		HasFRPToken:     u.FRPToken != "",
 		HasNPSVerifyKey: u.NPSVerifyKey != "",
+		RateLimit:       u.RateLimit,
+		FlowLimit:       u.FlowLimit,
+		FlowUsed:        u.FlowUsed,
 		CreatedAt:       u.CreatedAt,
 		UpdatedAt:       u.UpdatedAt,
 	}
+}
+
+type TunnelTraffic struct {
+	TunnelID   string `json:"tunnelId"`
+	InletFlow  int64  `json:"inletFlow"`
+	ExportFlow int64  `json:"exportFlow"`
+}
+
+type UserTraffic struct {
+	UserName   string `json:"userName"`
+	InletFlow  int64  `json:"inletFlow"`
+	ExportFlow int64  `json:"exportFlow"`
+}
+
+type TrafficReport struct {
+	NodeID  string          `json:"nodeId"`
+	Tunnels []TunnelTraffic `json:"tunnels"`
+	Users   []UserTraffic   `json:"users"`
 }

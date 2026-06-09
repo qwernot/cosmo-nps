@@ -1,6 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -189,5 +194,121 @@ func TestFilterTunnelsByNode(t *testing.T) {
 	got = filterTunnelsByNode(tunnels, "edge-a")
 	if len(got) != 1 || got[0].ID != "edge" {
 		t.Fatalf("unexpected edge tunnels: %#v", got)
+	}
+}
+
+func TestTrafficReport(t *testing.T) {
+	// Create mock store
+	dbPath := filepath.Join(t.TempDir(), "db.json")
+	store, err := core.NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// Insert test user and node
+	user := core.User{
+		Name:      "alice",
+		Role:      "user",
+		Enabled:   true,
+		FlowLimit: 1, // 1 GB limit
+		FlowUsed:  0,
+	}
+	if _, err := store.UpsertUser(user); err != nil {
+		t.Fatalf("failed to insert user: %v", err)
+	}
+
+	node := core.Node{
+		ID:      "node-1",
+		Name:    "Test Node",
+		Token:   "node-token",
+		Enabled: true,
+	}
+	if _, err := store.UpsertNode(node); err != nil {
+		t.Fatalf("failed to insert node: %v", err)
+	}
+
+	// Create apiServer
+	api := &apiServer{
+		store:         store,
+		tunnelTraffic: make(map[string]*tunnelTrafficState),
+		userTraffic:   make(map[string]*userTrafficState),
+	}
+
+	// Step 1: Report traffic under limit (e.g. 500 MB)
+	report := core.TrafficReport{
+		NodeID: "node-1",
+		Users: []core.UserTraffic{
+			{
+				UserName:   "alice",
+				InletFlow:  200 * 1024 * 1024,
+				ExportFlow: 300 * 1024 * 1024,
+			},
+		},
+		Tunnels: []core.TunnelTraffic{
+			{
+				TunnelID:   "tunnel-1",
+				InletFlow:  200 * 1024 * 1024,
+				ExportFlow: 300 * 1024 * 1024,
+			},
+		},
+	}
+
+	bodyBytes, _ := json.Marshal(report)
+	req := httptest.NewRequest("POST", "/api/agent/report", bytes.NewReader(bodyBytes))
+	req.Header.Set("Authorization", "Bearer node-token")
+	w := httptest.NewRecorder()
+
+	api.reportTraffic(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Verify User FlowUsed
+	u, ok := store.GetUser("alice")
+	if !ok {
+		t.Fatal("user alice not found")
+	}
+	if u.FlowUsed != 500*1024*1024 {
+		t.Fatalf("expected FlowUsed to be 500MB (524288000), got %d", u.FlowUsed)
+	}
+	if !u.Enabled {
+		t.Fatal("expected user to still be enabled")
+	}
+
+	// Step 2: Report traffic exceeding limit (e.g. another 600 MB, taking total to 1.1 GB)
+	report2 := core.TrafficReport{
+		NodeID: "node-1",
+		Users: []core.UserTraffic{
+			{
+				UserName:   "alice",
+				InletFlow:  500 * 1024 * 1024,
+				ExportFlow: 600 * 1024 * 1024,
+			},
+		},
+	}
+
+	bodyBytes2, _ := json.Marshal(report2)
+	req2 := httptest.NewRequest("POST", "/api/agent/report", bytes.NewReader(bodyBytes2))
+	req2.Header.Set("Authorization", "Bearer node-token")
+	w2 := httptest.NewRecorder()
+
+	api.reportTraffic(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d. Body: %s", w2.Code, w2.Body.String())
+	}
+
+	// Verify User is Disabled
+	u2, ok := store.GetUser("alice")
+	if !ok {
+		t.Fatal("user alice not found")
+	}
+	expectedFlow := int64(1100 * 1024 * 1024)
+	if u2.FlowUsed != expectedFlow {
+		t.Fatalf("expected FlowUsed to be 1100MB, got %d", u2.FlowUsed)
+	}
+	if u2.Enabled {
+		t.Fatal("expected user to be automatically disabled due to traffic limit exceedance")
 	}
 }

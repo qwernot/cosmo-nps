@@ -310,6 +310,9 @@ func (s *Store) UpsertUser(in User) (PublicUser, error) {
 	} else if u.NPSVerifyKey == "" {
 		u.NPSVerifyKey = randomSecret()
 	}
+	u.RateLimit = in.RateLimit
+	u.FlowLimit = in.FlowLimit
+	u.FlowUsed = in.FlowUsed
 	u.UpdatedAt = now
 	if err := s.saveLocked(); err != nil {
 		return PublicUser{}, err

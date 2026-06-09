@@ -265,6 +265,11 @@ func SyncNPSState(users []core.User, tunnels []core.Tunnel) error {
 		client.PortPool = core.FormatPortRanges(user.PortPools)
 		client.ConfigConnAllow = true
 		client.MaxTunnelNum = user.MaxPorts
+		client.RateLimit = user.RateLimit * 128
+		if client.Flow == nil {
+			client.Flow = new(npsfile.Flow)
+		}
+		client.Flow.FlowLimit = user.FlowLimit * 1024 * 1024 * 1024
 		if err := db.NewClient(client); err != nil {
 			return err
 		}
@@ -469,4 +474,80 @@ func managedNPSRemark(id string) string {
 
 func managedNPSHostRemark(id, domain string) string {
 	return "tc:" + id + ":" + domain
+}
+
+func CollectNPSTraffic() ([]core.TunnelTraffic, []core.UserTraffic) {
+	if npsfile.Db == nil {
+		return nil, nil
+	}
+	db := npsfile.GetDb()
+	tunnelsMap := map[string]*core.TunnelTraffic{}
+
+	db.JsonDb.Tasks.Range(func(key, value any) bool {
+		task, ok := value.(*npsfile.Tunnel)
+		if !ok || task.Flow == nil {
+			return true
+		}
+		if strings.HasPrefix(task.Remark, "tc:") {
+			tunnelID := strings.TrimPrefix(task.Remark, "tc:")
+			if _, exists := tunnelsMap[tunnelID]; !exists {
+				tunnelsMap[tunnelID] = &core.TunnelTraffic{TunnelID: tunnelID}
+			}
+			task.Flow.RLock()
+			tunnelsMap[tunnelID].InletFlow += task.Flow.InletFlow
+			tunnelsMap[tunnelID].ExportFlow += task.Flow.ExportFlow
+			task.Flow.RUnlock()
+		}
+		return true
+	})
+
+	db.JsonDb.Hosts.Range(func(key, value any) bool {
+		host, ok := value.(*npsfile.Host)
+		if !ok || host.Flow == nil {
+			return true
+		}
+		if strings.HasPrefix(host.Remark, "tc:") {
+			parts := strings.Split(host.Remark, ":")
+			if len(parts) >= 2 {
+				tunnelID := parts[1]
+				if _, exists := tunnelsMap[tunnelID]; !exists {
+					tunnelsMap[tunnelID] = &core.TunnelTraffic{TunnelID: tunnelID}
+				}
+				host.Flow.RLock()
+				tunnelsMap[tunnelID].InletFlow += host.Flow.InletFlow
+				tunnelsMap[tunnelID].ExportFlow += host.Flow.ExportFlow
+				host.Flow.RUnlock()
+			}
+		}
+		return true
+	})
+
+	tunnelsTraffic := make([]core.TunnelTraffic, 0, len(tunnelsMap))
+	for _, traffic := range tunnelsMap {
+		tunnelsTraffic = append(tunnelsTraffic, *traffic)
+	}
+
+	usersTraffic := []core.UserTraffic{}
+	db.JsonDb.Clients.Range(func(key, value any) bool {
+		client, ok := value.(*npsfile.Client)
+		if !ok || client.Flow == nil {
+			return true
+		}
+		name := client.WebUserName
+		if name == "" {
+			name = client.Remark
+		}
+		if name != "" {
+			client.Flow.RLock()
+			usersTraffic = append(usersTraffic, core.UserTraffic{
+				UserName:   name,
+				InletFlow:  client.Flow.InletFlow,
+				ExportFlow: client.Flow.ExportFlow,
+			})
+			client.Flow.RUnlock()
+		}
+		return true
+	})
+
+	return tunnelsTraffic, usersTraffic
 }
