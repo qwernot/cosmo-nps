@@ -117,6 +117,22 @@ func init() {
 }
 
 func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) error {
+	// 1. Check if another instance is already running by calling POST /api/show
+	checkAddr := addr
+	if strings.HasPrefix(checkAddr, ":") {
+		checkAddr = "127.0.0.1" + checkAddr
+	}
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	allowSetForegroundWindow()
+	resp, err := client.Post("http://"+checkAddr+"/api/show", "application/json", nil)
+	if err == nil {
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			log.Println("Another instance is running. Showing its window and exiting.")
+			return nil
+		}
+	}
+
 	globalAddr = addr
 	cfg := loadLauncherConfig()
 	if cfg.ControlURL == "" {
@@ -148,6 +164,7 @@ func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) er
 	mux.HandleFunc("POST /api/stop", globalState.stop)
 	mux.HandleFunc("GET /api/settings", globalState.getSettings)
 	mux.HandleFunc("POST /api/settings", globalState.setSettings)
+	mux.HandleFunc("POST /api/show", globalState.show)
 
 	// Start HTTP server in background thread
 	go func() {
@@ -187,7 +204,7 @@ func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) er
 
 	// Open browser if not in silent mode
 	if !silent {
-		go openBrowser("http://" + addr)
+		go openDashboardWindow("http://" + addr)
 	}
 
 	// Start system tray or wait loop (blocks on main thread)
@@ -235,6 +252,11 @@ func (s *launcherState) status(w http.ResponseWriter, r *http.Request) {
 		"tunnels": s.tunnels,
 		"logs":    append([]string(nil), s.logs...),
 	})
+}
+
+func (s *launcherState) show(w http.ResponseWriter, r *http.Request) {
+	go openDashboardWindow("http://" + globalAddr)
+	writeLauncherJSON(w, map[string]string{"status": "ok"})
 }
 
 func (s *launcherState) start(w http.ResponseWriter, r *http.Request) {

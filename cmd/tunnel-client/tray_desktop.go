@@ -28,7 +28,7 @@ func onReady() {
 		for {
 			select {
 			case <-mOpen.ClickedCh:
-				openBrowser("http://" + globalAddr)
+				openDashboardWindow("http://" + globalAddr)
 			case <-mAutoStart.ClickedCh:
 				enabled := !isAutoStartEnabled()
 				err := setAutoStart(enabled)
