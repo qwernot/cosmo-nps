@@ -3,11 +3,15 @@
 package main
 
 import (
+	_ "embed"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 )
+
+//go:embed tunnel-client-gui.exe
+var guiBinaryBytes []byte
 
 func openDashboardWindow(url string) {
 	// 1. Get current executable directory
@@ -19,10 +23,19 @@ func openDashboardWindow(url string) {
 	dir := filepath.Dir(exe)
 	guiPath := filepath.Join(dir, "tunnel-client-gui.exe")
 
-	// 2. Check if tunnel-client-gui.exe exists in the same folder
+	// 2. Check if tunnel-client-gui.exe exists. If not, extract it from embedded bytes.
 	if _, err := os.Stat(guiPath); err != nil {
-		log.Printf("tunnel-client-gui.exe not found at %s, falling back to path search...", guiPath)
-		guiPath = "tunnel-client-gui.exe"
+		log.Printf("tunnel-client-gui.exe not found at %s, extracting embedded GUI binary...", guiPath)
+		if len(guiBinaryBytes) > 0 {
+			err = os.WriteFile(guiPath, guiBinaryBytes, 0755)
+			if err != nil {
+				log.Printf("Failed to extract embedded GUI binary: %v", err)
+				guiPath = "tunnel-client-gui.exe" // fall back to path search
+			}
+		} else {
+			log.Println("Embedded GUI binary is empty")
+			guiPath = "tunnel-client-gui.exe" // fall back to path search
+		}
 	}
 
 	// 3. Launch the C# GUI with the URL as an argument
