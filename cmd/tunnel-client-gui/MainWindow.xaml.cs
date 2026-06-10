@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -454,6 +455,23 @@ namespace TunnelClientGui
             {
                 MessageBox.Show($"保存自启动设置异常: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                 AutoStartToggle.IsChecked = !isChecked;
+            }
+        }
+
+        private void ContactAuthorBtn_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "http://666228.xyz",
+                    UseShellExecute = true
+                };
+                Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"打开链接失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }

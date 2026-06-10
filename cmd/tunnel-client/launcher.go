@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"bytes"
@@ -1018,6 +1018,35 @@ const launcherHTML = `<!doctype html>
       transform: translateX(22px);
     }
 
+
+    /* Link Button for Contact Author */
+    .link-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: var(--accent-cyan);
+      color: #0a0a1a;
+      border: none;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 2px 8px var(--accent-glow);
+    }
+
+    .link-btn:hover {
+      box-shadow: 0 4px 16px var(--accent-glow);
+      transform: translateY(-1px);
+    }
+
+    .link-btn svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
     /* Custom Scrollbars */
     ::-webkit-scrollbar {
       width: 6px;
@@ -1178,6 +1207,16 @@ const launcherHTML = `<!doctype html>
               <input type="checkbox" id="setting-autostart" />
               <span class="slider"></span>
             </label>
+          </div>
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-title">联系作者</span>
+              <span class="setting-desc">访问页面获取帮助与支持</span>
+            </div>
+            <a href="http://666228.xyz" target="_blank" class="link-btn" title="666228.xyz">
+              <svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+              访问
+            </a>
           </div>
         </section>
       </div>
