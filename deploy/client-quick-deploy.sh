@@ -34,7 +34,7 @@ check_root() {
 
 detect_os() {
     if [[ -f /etc/os-release ]]; then
-        eval "$(. /etc/os-release && echo "$ID")" || true
+        eval "$(. /etc/os-release && echo "OS=\$ID")" || true
         VERSION_ID=$(grep '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
     elif [[ -f /etc/redhat-release ]]; then
         OS="centos"

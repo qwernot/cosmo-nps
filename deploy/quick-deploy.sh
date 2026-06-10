@@ -40,7 +40,7 @@ check_root() {
 
 detect_os() {
     if [[ -f /etc/os-release ]]; then
-        eval "$(. /etc/os-release && echo "$ID")" || true
+        eval "$(. /etc/os-release && echo "OS=\$ID")" || true
         VERSION_ID=$(grep '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
     elif [[ -f /etc/redhat-release ]]; then
         OS="centos"
@@ -170,7 +170,7 @@ deploy_control() {
     local compose_dir=""
 
     # 检查是否在 deploy/docker 目录
-    if [[ -f "compose.yml" && -f ".env.example" ]]; then
+    if [[ -f "compose.yml" ]]; then
         deploy_dir="$(pwd)"
         compose_dir="."
     elif [[ -f "$deploy_dir/deploy/docker/compose.yml" ]]; then
@@ -187,8 +187,9 @@ deploy_control() {
     read -rp "管理员用户名 [$DEFAULT_ADMIN_USER]: " ADMIN_USER
     read -rp "管理员密码 [$DEFAULT_ADMIN_PASSWORD]: " ADMIN_PASSWORD
 
-    PUBLIC_ADDR="${PUBLIC_ADDR:-$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')}${PUBLIC_ADDR}"
-    [[ -z "$PUBLIC_ADDR" ]] && PUBLIC_ADDR="$(hostname -I | awk '{print $1}')"
+    if [[ -z "$PUBLIC_ADDR" ]]; then
+        PUBLIC_ADDR="$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || hostname -I | awk '{print $1}')"
+    fi
     ADMIN_USER="${ADMIN_USER:-$DEFAULT_ADMIN_USER}"
     ADMIN_PASSWORD="${ADMIN_PASSWORD:-$DEFAULT_ADMIN_PASSWORD}"
 
