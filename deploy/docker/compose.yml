@@ -10,3 +10,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
     volumes:
       - ./data:/app/data
+    logging:
+      driver: local
+      options:
+        max-size: "50m"
+        max-age: "7d"

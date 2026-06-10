@@ -9,3 +9,8 @@ services:
       CONTROL_URL: ${CONTROL_URL}
       TUNNEL_USER: ${TUNNEL_USER}
       TUNNEL_PASSWORD: ${TUNNEL_PASSWORD}
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-age: "1d"

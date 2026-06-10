@@ -17,3 +17,8 @@ services:
       NPS_HTTPS_PORT: ${NPS_HTTPS_PORT:-9443}
     volumes:
       - ./data:/app/data
+    logging:
+      driver: local
+      options:
+        max-size: "50m"
+        max-age: "3d"
