@@ -21,8 +21,8 @@ step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 
 # ---------- 配置区 ----------
 # 阿里云 Docker 镜像加速地址
-ALIYUN_DOCKER_MIRROR="https://docker.m.daocloud.io"
-ALIYUN_DOCKER_MIRROR_2="https://rrsr9a7n.mirror.aliyuncs.com"
+ALIYUN_DOCKER_MIRROR="https://2bc9dt6w.mirror.aliyuncs.com"
+ALIYUN_DOCKER_MIRROR_2="https://docker.1ms.run"
 
 # 总控服务配置（可根据需要修改默认值）
 DEFAULT_PUBLIC_ADDR=""

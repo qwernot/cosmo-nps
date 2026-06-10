@@ -20,8 +20,8 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 
 # ---------- 配置区 ----------
-ALIYUN_DOCKER_MIRROR="https://docker.m.daocloud.io"
-ALIYUN_DOCKER_MIRROR_2="https://rrsr9a7n.mirror.aliyuncs.com"
+ALIYUN_DOCKER_MIRROR="https://2bc9dt6w.mirror.aliyuncs.com"
+ALIYUN_DOCKER_MIRROR_2="https://docker.1ms.run"
 
 # ========== 函数 ==========
 
