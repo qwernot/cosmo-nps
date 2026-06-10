@@ -74,23 +74,40 @@ docker_installed() {
     command -v docker &>/dev/null
 }
 
-# 阿里云镜像加速配置
+# 镜像加速配置（保留 daemon.json 中已有其他配置）
 setup_docker_mirror() {
-    step "配置 Docker 阿里云镜像加速"
+    step "配置 Docker 镜像加速"
     local mirror_dir="/etc/docker"
+    local daemon_json="$mirror_dir/daemon.json"
     mkdir -p "$mirror_dir"
 
-    cat > "$mirror_dir/daemon.json" <<EOF
+    local mirrors="[\"$ALIYUN_DOCKER_MIRROR\", \"$ALIYUN_DOCKER_MIRROR_2\"]"
+
+    # 如果已有 daemon.json，用 python3 合并配置（保留其他设置）
+    if [[ -f "$daemon_json" ]] && command -v python3 &>/dev/null; then
+        python3 -c "
+import json, sys
+try:
+    with open('$daemon_json') as f:
+        config = json.load(f)
+except:
+    config = {}
+config['registry-mirrors'] = ['$ALIYUN_DOCKER_MIRROR', '$ALIYUN_DOCKER_MIRROR_2']
+with open('$daemon_json', 'w') as f:
+    json.dump(config, f, indent=2)
+"
+        info "已更新镜像加速（保留其他 Docker 配置）"
+    else
+        cat > "$daemon_json" <<EOF
 {
   "registry-mirrors": [
     "$ALIYUN_DOCKER_MIRROR",
     "$ALIYUN_DOCKER_MIRROR_2"
-  ],
-  "exec-args": ["--default-ulimit=nofile=8192:65536"]
+  ]
 }
 EOF
-    info "已配置镜像加速: $ALIYUN_DOCKER_MIRROR"
-    warn "请根据阿里云控制台获取您的专属加速地址替换上述地址"
+        info "已配置镜像加速: $ALIYUN_DOCKER_MIRROR"
+    fi
 
     if systemctl is-active docker &>/dev/null; then
         systemctl restart docker
@@ -132,18 +149,8 @@ install_docker() {
         docker --version
         info "Docker Compose 已安装"
         docker compose version
-        # 检查镜像配置
-        if [[ -f /etc/docker/daemon.json ]]; then
-            if grep -q "aliyuncs.com\|daocloud" /etc/docker/daemon.json; then
-                info "镜像加速已配置"
-            else
-                warn "未检测到阿里云镜像加速，正在配置..."
-                setup_docker_mirror
-            fi
-        else
-            info "镜像加速配置不存在，正在配置..."
-            setup_docker_mirror
-        fi
+        # 始终更新镜像加速为脚本配置的有效地址
+        setup_docker_mirror
         return 0
     fi
 
