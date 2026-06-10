@@ -1850,6 +1850,7 @@ if command -v docker &>/dev/null; then
     --name "tunnel-agent-$NODE_ID" \
     --network host \
     --restart unless-stopped \
+    --entrypoint /usr/local/bin/tunnel-agent \
     -v "/opt/tunnel-agent/data-$NODE_ID:/app/data" \
     -e CONTROL_URL="$CONTROL_URL" \
     -e NODE_ID="$NODE_ID" \
@@ -1858,8 +1859,7 @@ if command -v docker &>/dev/null; then
     -e NPS_TLS_BRIDGE_PORT="$NPS_TLS_BRIDGE_PORT" \
     -e NPS_HTTP_PORT="$NPS_HTTP_PORT" \
     -e NPS_HTTPS_PORT="$NPS_HTTPS_PORT" \
-    darkver8/tunnel-all:latest \
-    /usr/local/bin/tunnel-agent
+    darkver8/tunnel-all:latest
     
   echo "=== 节点容器部署成功！ ==="
   echo "查看运行日志命令: docker logs -f tunnel-agent-$NODE_ID"
