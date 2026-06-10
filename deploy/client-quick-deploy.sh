@@ -34,8 +34,21 @@ check_root() {
 
 detect_os() {
     if [[ -f /etc/os-release ]]; then
-        eval "$(. /etc/os-release && echo "OS=\${ID:-}")" || true
-        VERSION_ID=$(grep '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
+        . /etc/os-release
+        OS="${ID:-}"
+        case "$OS" in
+            centos|rocky|alma|rhel|ubuntu|debian|mint|pop) ;;
+            *)
+                local id_like="${ID_LIKE:-}"
+                for like in $id_like; do
+                    case "$like" in
+                        centos|rhel|rocky|alma) OS="centos"; break ;;
+                        ubuntu|debian)          OS="ubuntu"; break ;;
+                    esac
+                done
+                ;;
+        esac
+        VERSION_ID="${VERSION_ID:-unknown}"
     elif [[ -f /etc/redhat-release ]]; then
         OS="centos"
         VERSION_ID="7"
@@ -168,8 +181,8 @@ deploy_client() {
     # 检查 compose 文件位置
     if [[ -f "compose.yml" ]]; then
         compose_dir="."
-    elif [[ -f "$deploy_dir/deploy/client/compose.yml" ]]; then
-        compose_dir="$deploy_dir/deploy/client"
+    elif [[ -f "$deploy_dir/client/compose.yml" ]]; then
+        compose_dir="$deploy_dir/client"
     else
         error "找不到 deploy/client/compose.yml，请检查项目目录结构"
         exit 1

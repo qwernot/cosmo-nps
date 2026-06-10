@@ -40,8 +40,22 @@ check_root() {
 
 detect_os() {
     if [[ -f /etc/os-release ]]; then
-        eval "$(. /etc/os-release && echo "OS=\${ID:-}")" || true
-        VERSION_ID=$(grep '^VERSION_ID=' /etc/os-release | cut -d'"' -f2)
+        . /etc/os-release
+        OS="${ID:-}"
+        # 如果 ID 不在支持列表里，尝试 ID_LIKE（如阿里云 Linux ID_LIKE="rhel centos"）
+        case "$OS" in
+            centos|rocky|alma|rhel|ubuntu|debian|mint|pop) ;;
+            *)
+                local id_like="${ID_LIKE:-}"
+                for like in $id_like; do
+                    case "$like" in
+                        centos|rhel|rocky|alma) OS="centos"; break ;;
+                        ubuntu|debian)          OS="ubuntu"; break ;;
+                    esac
+                done
+                ;;
+        esac
+        VERSION_ID="${VERSION_ID:-unknown}"
     elif [[ -f /etc/redhat-release ]]; then
         OS="centos"
         VERSION_ID="7"
@@ -173,8 +187,8 @@ deploy_control() {
     if [[ -f "compose.yml" ]]; then
         deploy_dir="$(pwd)"
         compose_dir="."
-    elif [[ -f "$deploy_dir/deploy/docker/compose.yml" ]]; then
-        compose_dir="$deploy_dir/deploy/docker"
+    elif [[ -f "$deploy_dir/docker/compose.yml" ]]; then
+        compose_dir="$deploy_dir/docker"
     else
         error "找不到 deploy/docker/compose.yml，请检查项目目录结构"
         exit 1
