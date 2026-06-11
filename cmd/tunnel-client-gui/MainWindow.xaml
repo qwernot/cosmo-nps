@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:TunnelClientGui"
         mc:Ignorable="d"
-        Title="Tunnel Client" Height="660" Width="980"
+        Title="Tunnel Client" Icon="app.ico" Height="660" Width="980"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen">
     
@@ -320,15 +320,7 @@
                 
                 <!-- Logo & Brand in Title Bar -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <Border Width="28" Height="28" CornerRadius="8">
-                        <Border.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="#06B6D4" Offset="0"/>
-                                <GradientStop Color="#2563EB" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Border.Background>
-                        <Path Data="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" Fill="White" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                    </Border>
+                    <Image Source="app.ico" Width="34" Height="34" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock Text="NPS 隧道客户端" Margin="10,0,0,0" Foreground="White" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
                 </StackPanel>
 
