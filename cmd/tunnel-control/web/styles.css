@@ -17,7 +17,7 @@
   --green: #10b981;
   --red: #f43f5e;
   --amber: #fbbf24;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
 }
 
 * {
@@ -34,10 +34,7 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
-  background:
-    radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.06) 0%, transparent 45%),
-    radial-gradient(circle at 90% 80%, rgba(168, 85, 247, 0.04) 0%, transparent 45%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
   font-size: 14px;
@@ -58,10 +55,7 @@ body.login-mode .main {
   display: none;
   place-items: center;
   padding: 20px;
-  background:
-    radial-gradient(circle at 50% 40%, rgba(168, 85, 247, 0.06) 0%, transparent 60%),
-    radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.04) 0%, transparent 40%),
-    var(--bg);
+  background: var(--bg);
 }
 
 body.login-mode .login-screen {
@@ -118,8 +112,6 @@ select[readonly] {
 .sidebar {
   min-height: 100vh;
   background: var(--sidebar);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-right: 1px solid var(--line-soft);
   color: var(--text);
   padding: 24px 18px;
@@ -145,7 +137,7 @@ select[readonly] {
   box-shadow: 0 0 16px rgba(168, 85, 247, 0.3);
   color: #ffffff;
   flex-shrink: 0;
-  transition: all 0.3s ease;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 
 .brand-mark svg {
@@ -180,7 +172,7 @@ select[readonly] {
   text-align: left;
   padding: 10px 14px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
 
 .nav-item:hover {
@@ -200,7 +192,7 @@ select[readonly] {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.02);
-  transition: all 0.25s ease;
+  transition: background-color 0.14s ease, border-color 0.14s ease;
 }
 
 .runtime:hover {
@@ -229,7 +221,7 @@ select[readonly] {
 }
 
 .runtime:hover a.github-link svg {
-  transform: scale(1.1);
+  transform: none;
 }
 
 .main {
@@ -285,12 +277,11 @@ h2 {
   cursor: pointer;
   white-space: nowrap;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
-  transition: all 0.2s ease;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
 }
 
 .button:hover {
   box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35);
-  transform: translateY(-1px);
 }
 
 .button:disabled {
@@ -438,19 +429,16 @@ h3 {
 .panel,
 .login-panel {
   background: var(--surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow);
-  transition: all 0.3s ease;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
 }
 
 .panel:hover,
 .metric:hover {
   border-color: rgba(59, 130, 246, 0.2);
-  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.05), var(--shadow);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow);
 }
 
 .metric {
@@ -744,7 +732,6 @@ pre {
   right: 18px;
   bottom: 18px;
   background: rgba(13, 18, 38, 0.95);
-  backdrop-filter: blur(8px);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: var(--shadow);
@@ -752,13 +739,11 @@ pre {
   border-radius: 8px;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(8px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity 0.14s ease;
 }
 
 .toast.show {
   opacity: 1;
-  transform: translateY(0);
 }
 
 @media (max-width: 980px) {
@@ -812,7 +797,6 @@ pre {
   position: fixed;
   inset: 0;
   background: rgba(4, 6, 15, 0.75);
-  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -835,12 +819,6 @@ pre {
   border-radius: 12px;
   box-shadow: var(--shadow);
   padding: 24px;
-  transform: translateY(20px);
-  transition: transform 0.25s ease;
-}
-
-.modal-backdrop.show .modal {
-  transform: translateY(0);
 }
 
 /* 弹窗头部 */
@@ -868,7 +846,7 @@ pre {
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 4px;
-  transition: all 0.2s;
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
 
 .modal-head .close-btn:hover {
@@ -918,7 +896,7 @@ pre {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.14s ease, box-shadow 0.14s ease;
 }
 
 .code-box button:hover {
@@ -955,7 +933,7 @@ pre {
   color: var(--accent-strong);
   text-decoration: none;
   border-bottom: 1px dotted var(--accent-strong);
-  transition: all 0.2s;
+  transition: color 0.14s ease, border-color 0.14s ease;
 }
 
 .manual-tip a:hover {

@@ -7,6 +7,7 @@ const state = {
   diagnostics: null,
   clients: null,
   availability: null,
+  availabilityKey: "",
   logs: null,
   view: "dashboard",
 };
@@ -22,6 +23,11 @@ const titles = {
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+function setHTML(target, html) {
+  const el = typeof target === "string" ? $(target) : target;
+  if (el && el.innerHTML !== html) el.innerHTML = html;
+}
 
 function isAdmin() {
   return state.me && state.me.role === "admin";
@@ -132,6 +138,9 @@ async function refresh() {
   if (state.view === "dashboard" || state.view === "tunnels") {
     api("/api/availability")
       .then((value) => {
+        const key = JSON.stringify(value?.availability || []);
+        if (key === state.availabilityKey) return;
+        state.availabilityKey = key;
         state.availability = value;
         render();
       })
@@ -442,17 +451,17 @@ async function clearLogs() {
 function renderUserOptions() {
   const options = state.users.map((u) => `<option value="${escapeHtml(u.name)}">${escapeHtml(u.name)}</option>`).join("");
   const tunnelUser = $('select[name="userName"]');
-  tunnelUser.innerHTML = options;
-  $("#config-user").innerHTML = options;
+  setHTML(tunnelUser, options);
+  setHTML("#config-user", options);
   tunnelUser.disabled = !isAdmin();
 }
 
 function renderNodeOptions() {
   const options = nodes().map((node) => `<option value="${escapeHtml(node.id)}">${escapeHtml(nodeLabel(node.id))}</option>`).join("");
   const tunnelNode = $('select[name="nodeId"]');
-  if (tunnelNode) tunnelNode.innerHTML = options;
+  if (tunnelNode) setHTML(tunnelNode, options);
   const configNode = $("#config-node");
-  if (configNode) configNode.innerHTML = options;
+  if (configNode) setHTML(configNode, options);
 }
 
 function statusBadge(enabled) {
