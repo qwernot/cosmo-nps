@@ -17,7 +17,7 @@
   --green: #10b981;
   --red: #f43f5e;
   --amber: #fbbf24;
-  --shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  --shadow: none;
 }
 
 * {
@@ -134,7 +134,7 @@ select[readonly] {
   place-items: center;
   border-radius: 10px;
   background: linear-gradient(135deg, #a855f7, #3b82f6); /* Purple-blue gradient */
-  box-shadow: 0 0 16px rgba(168, 85, 247, 0.3);
+  box-shadow: none;
   color: #ffffff;
   flex-shrink: 0;
   transition: background-color 0.18s ease, border-color 0.18s ease;
@@ -183,7 +183,7 @@ select[readonly] {
 .nav-item.active {
   background: var(--blue);
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  box-shadow: none;
 }
 
 .runtime {
@@ -198,7 +198,7 @@ select[readonly] {
 .runtime:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: none;
 }
 
 .runtime a.github-link {
@@ -276,12 +276,12 @@ h2 {
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
-  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
+  box-shadow: none;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
 
 .button:hover {
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.35);
+  box-shadow: none;
 }
 
 .button:disabled {
@@ -432,7 +432,7 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: var(--shadow);
-  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+  transition: border-color 0.14s ease;
 }
 
 .panel:hover,
@@ -896,12 +896,12 @@ pre {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.14s ease, box-shadow 0.14s ease;
+  transition: background-color 0.14s ease;
 }
 
 .code-box button:hover {
   background: var(--accent-strong);
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.45);
+  box-shadow: none;
 }
 
 /* 部署说明与提示 */
@@ -974,7 +974,7 @@ pre {
   height: 100%;
   background: linear-gradient(90deg, #3b82f6, #10b981);
   border-radius: 3px;
-  transition: width 0.4s ease;
+  transition: none;
 }
 
 .tunnel-traffic {
@@ -996,7 +996,7 @@ pre {
 
 .tunnel-traffic .traffic-speed.speed-active {
   color: #34d399; /* emerald green/teal */
-  text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+  text-shadow: none;
   font-weight: bold;
 }
 
