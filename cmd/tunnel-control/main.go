@@ -1842,8 +1842,18 @@ echo "主控地址: $CONTROL_URL"
 if command -v docker &>/dev/null; then
   echo "[+] 检测到 Docker，将以容器化模式部署节点..."
   
+  # 拉取镜像
+  echo "[+] 拉取最新镜像..."
+  if ! docker pull darkver8/tunnel-all:latest; then
+    echo "[-] 镜像拉取失败，请检查网络或手动执行: docker pull darkver8/tunnel-all:latest"
+    exit 1
+  fi
+
   # 清理同名冲突容器
   docker rm -f "tunnel-agent-$NODE_ID" &>/dev/null || true
+
+  # 创建数据目录
+  mkdir -p "/opt/tunnel-agent/data-$NODE_ID"
   
   # 运行容器 (使用 host 网络与主控共享端口并映射数据卷)
   docker run -d \
@@ -1863,9 +1873,17 @@ if command -v docker &>/dev/null; then
     -e NPS_HTTP_PORT="$NPS_HTTP_PORT" \
     -e NPS_HTTPS_PORT="$NPS_HTTPS_PORT" \
     darkver8/tunnel-all:latest
-    
-  echo "=== 节点容器部署成功！ ==="
-  echo "查看运行日志命令: docker logs -f tunnel-agent-$NODE_ID"
+
+  # 检查容器是否成功启动
+  sleep 2
+  if docker ps --format '{{.Names}}' | grep -q "tunnel-agent-$NODE_ID"; then
+    echo "=== 节点容器部署成功！ ==="
+    echo "查看运行日志命令: docker logs -f tunnel-agent-$NODE_ID"
+  else
+    echo "[-] 容器启动失败，请检查日志:"
+    docker logs --tail=20 "tunnel-agent-$NODE_ID"
+    exit 1
+  fi
   exit 0
 fi
 
