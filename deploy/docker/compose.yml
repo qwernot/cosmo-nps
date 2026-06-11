@@ -14,4 +14,4 @@ services:
       driver: local
       options:
         max-size: "50m"
-        max-age: "7d"
+        max-file: "7"

@@ -1863,7 +1863,7 @@ if command -v docker &>/dev/null; then
     --entrypoint /usr/local/bin/tunnel-agent \
     --log-driver local \
     --log-opt max-size=50m \
-    --log-opt max-age=3d \
+    --log-opt max-file=3 \
     -v "/opt/tunnel-agent/data-$NODE_ID:/app/data" \
     -e CONTROL_URL="$CONTROL_URL" \
     -e NODE_ID="$NODE_ID" \

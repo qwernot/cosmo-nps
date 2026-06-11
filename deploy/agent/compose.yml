@@ -21,4 +21,4 @@ services:
       driver: local
       options:
         max-size: "50m"
-        max-age: "3d"
+        max-file: "3"
