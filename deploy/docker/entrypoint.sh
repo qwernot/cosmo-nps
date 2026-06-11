@@ -17,6 +17,13 @@ NPS_HTTPS_PORT="${NPS_HTTPS_PORT:-9443}"
 
 mkdir -p "$CONTROL_DIR" "$EXPORT_DIR"
 
+for dir in "$DATA_DIR" "$CONTROL_DIR" "$EXPORT_DIR"; do
+  if [ ! -w "$dir" ]; then
+    echo "error: $dir is not writable by container user" >&2
+    exit 1
+  fi
+done
+
 set -- \
   -addr :8088 \
   -db "$CONTROL_DIR/tunnel-control.json" \
@@ -24,6 +31,7 @@ set -- \
   -nps-port "$NPS_BRIDGE_PORT" \
   -nps-http-port "$NPS_HTTP_PORT" \
   -nps-https-port "$NPS_HTTPS_PORT" \
+  -frp-users-path "$CONTROL_DIR/frp-users.json" \
   -nps-clients-path "$CONTROL_DIR/nps-clients.json" \
   -config-out-dir "$EXPORT_DIR" \
   -admin-user "$ADMIN_USER" \
