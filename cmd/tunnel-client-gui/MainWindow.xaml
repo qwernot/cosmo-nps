@@ -320,7 +320,7 @@
                 
                 <!-- Logo & Brand in Title Bar -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
-                    <Image Source="app.ico" Width="34" Height="34" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <Image Source="app-logo.png" Width="34" Height="34" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                     <TextBlock Text="NPS 隧道客户端" Margin="10,0,0,0" Foreground="White" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
                 </StackPanel>
 

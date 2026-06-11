@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <Resource Include="..\tunnel-client\app.ico" Link="app.ico" />
+    <Resource Include="app-logo.png" />
   </ItemGroup>
 
 </Project>
