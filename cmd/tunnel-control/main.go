@@ -103,6 +103,7 @@ func main() {
 		log.Printf("initial engine user sync failed: %v", err)
 	}
 	go api.pushRemoteNodesLoop(context.Background())
+	go api.userExpiryLoop(context.Background())
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -471,6 +472,7 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		NPSVerifyKey string           `json:"npsVerifyKey"`
 		RateLimit    int              `json:"rateLimit"`
 		FlowLimit    int64            `json:"flowLimit"`
+		ExpiresAt    string           `json:"expiresAt"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -503,6 +505,11 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		existingFlowUsed = existing.FlowUsed
 	}
+	expiresAt, err := parseOptionalTime(req.ExpiresAt)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	user, err := a.store.UpsertUser(core.User{
 		Name:         req.Name,
 		Password:     req.Password,
@@ -516,6 +523,7 @@ func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
 		RateLimit:    req.RateLimit,
 		FlowLimit:    req.FlowLimit,
 		FlowUsed:     existingFlowUsed,
+		ExpiresAt:    expiresAt,
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -1060,6 +1068,65 @@ func (a *apiServer) attachUserTraffic(users []core.PublicUser) {
 			}
 		}
 	}
+}
+
+func parseOptionalTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02T15:04",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+	var lastErr error
+	for _, layout := range layouts {
+		var t time.Time
+		var err error
+		if layout == time.RFC3339 {
+			t, err = time.Parse(layout, value)
+		} else {
+			t, err = time.ParseInLocation(layout, value, time.Local)
+		}
+		if err == nil {
+			return t.UTC(), nil
+		}
+		lastErr = err
+	}
+	return time.Time{}, fmt.Errorf("invalid expiresAt %q: %w", value, lastErr)
+}
+
+func (a *apiServer) userExpiryLoop(ctx context.Context) {
+	a.enforceUserExpiry()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.enforceUserExpiry()
+		}
+	}
+}
+
+func (a *apiServer) enforceUserExpiry() {
+	changed, err := a.store.EnforceUserExpiry(time.Now().UTC(), 7*24*time.Hour)
+	if err != nil {
+		log.Printf("enforce user expiry failed: %v", err)
+		return
+	}
+	if !changed {
+		return
+	}
+	log.Printf("user expiry lifecycle changed users; syncing engines")
+	if _, err := a.syncEngineUsers(); err != nil {
+		log.Printf("sync expired users failed: %v", err)
+	}
+	a.pushRemoteNodesAsync()
 }
 
 func filterUsersByName(users []core.User, name string) []core.User {
@@ -2175,6 +2242,7 @@ func (a *apiServer) reportTraffic(w http.ResponseWriter, r *http.Request) {
 					RateLimit:    user.RateLimit,
 					FlowLimit:    user.FlowLimit,
 					FlowUsed:     newUsed,
+					ExpiresAt:    user.ExpiresAt,
 				})
 				if !enabled && user.Enabled {
 					dirtyUsers = true

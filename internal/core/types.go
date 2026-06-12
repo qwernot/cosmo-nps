@@ -205,6 +205,8 @@ type User struct {
 	RateLimit    int         `json:"rateLimit,omitempty"`
 	FlowLimit    int64       `json:"flowLimit,omitempty"`
 	FlowUsed     int64       `json:"flowUsed,omitempty"`
+	ExpiresAt    time.Time   `json:"expiresAt,omitempty"`
+	ExpiredAt    time.Time   `json:"expiredAt,omitempty"`
 	CreatedAt    time.Time   `json:"createdAt"`
 	UpdatedAt    time.Time   `json:"updatedAt"`
 }
@@ -224,6 +226,8 @@ type PublicUser struct {
 	FlowUsed        int64       `json:"flowUsed,omitempty"`
 	InletSpeed      int64       `json:"inletSpeed,omitempty"`
 	ExportSpeed     int64       `json:"exportSpeed,omitempty"`
+	ExpiresAt       time.Time   `json:"expiresAt,omitempty"`
+	ExpiredAt       time.Time   `json:"expiredAt,omitempty"`
 	CreatedAt       time.Time   `json:"createdAt"`
 	UpdatedAt       time.Time   `json:"updatedAt"`
 }
@@ -291,6 +295,8 @@ func Public(u *User) PublicUser {
 		RateLimit:       u.RateLimit,
 		FlowLimit:       u.FlowLimit,
 		FlowUsed:        u.FlowUsed,
+		ExpiresAt:       u.ExpiresAt,
+		ExpiredAt:       u.ExpiredAt,
 		CreatedAt:       u.CreatedAt,
 		UpdatedAt:       u.UpdatedAt,
 	}

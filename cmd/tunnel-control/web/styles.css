@@ -961,6 +961,13 @@ pre {
   font-family: Consolas, monospace;
 }
 
+.muted.tiny {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .traffic-summary .traffic-speed {
   font-family: Consolas, monospace;
   font-size: 11px;

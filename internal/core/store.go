@@ -313,11 +313,59 @@ func (s *Store) UpsertUser(in User) (PublicUser, error) {
 	u.RateLimit = in.RateLimit
 	u.FlowLimit = in.FlowLimit
 	u.FlowUsed = in.FlowUsed
+	u.ExpiresAt = in.ExpiresAt
+	if in.ExpiresAt.IsZero() || in.ExpiresAt.After(now) {
+		u.ExpiredAt = time.Time{}
+	} else if u.Role != RoleAdmin {
+		u.Enabled = false
+		if u.ExpiredAt.IsZero() {
+			u.ExpiredAt = now
+		}
+	}
 	u.UpdatedAt = now
 	if err := s.saveLocked(); err != nil {
 		return PublicUser{}, err
 	}
 	return Public(u), nil
+}
+
+func (s *Store) EnforceUserExpiry(now time.Time, retention time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	cutoff := now.Add(-retention)
+
+	for name, u := range s.db.Users {
+		if u.Role == RoleAdmin || u.ExpiresAt.IsZero() {
+			continue
+		}
+		if !u.ExpiresAt.After(now) {
+			if u.Enabled {
+				u.Enabled = false
+				u.ExpiredAt = now
+				u.UpdatedAt = now
+				changed = true
+			} else if u.ExpiredAt.IsZero() {
+				u.ExpiredAt = now
+				u.UpdatedAt = now
+				changed = true
+			}
+		}
+		if !u.ExpiredAt.IsZero() && !u.ExpiredAt.After(cutoff) {
+			for id, t := range s.db.Tunnels {
+				if t.UserName == name {
+					delete(s.db.Tunnels, id)
+				}
+			}
+			delete(s.db.Users, name)
+			changed = true
+		}
+	}
+
+	if !changed {
+		return false, nil
+	}
+	return true, s.saveLocked()
 }
 
 func (s *Store) DeleteUser(name string) error {

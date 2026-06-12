@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParsePortRanges(t *testing.T) {
@@ -165,6 +166,58 @@ func TestUpdateNodeStatus(t *testing.T) {
 	node, _ = store.GetNode("edge-a")
 	if node.Status.Online || node.Status.LastError != "connection refused" {
 		t.Fatalf("unexpected offline status: %#v", node.Status)
+	}
+}
+
+func TestEnforceUserExpiryDisablesAndDeletes(t *testing.T) {
+	store, err := NewStore(filepath.Join(t.TempDir(), "db.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
+	if _, err := store.UpsertUser(User{
+		Name:      "alice",
+		Role:      RoleUser,
+		Enabled:   true,
+		PortPools: []PortRange{{Start: 10000, End: 10000}},
+		ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateTunnel(Tunnel{
+		UserName: "alice", Engine: EngineNPS, Mode: "tcp", RemotePort: 10000, LocalPort: 8080,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	expireNow := now.Add(2 * time.Hour)
+	changed, err := store.EnforceUserExpiry(expireNow, 7*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected expiry enforcement to change user")
+	}
+	user, ok := store.GetUser("alice")
+	if !ok {
+		t.Fatal("user should be retained during grace period")
+	}
+	if user.Enabled || user.ExpiredAt.IsZero() {
+		t.Fatalf("expected disabled expired user, got %#v", user)
+	}
+
+	changed, err = store.EnforceUserExpiry(expireNow.Add(8*24*time.Hour), 7*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected expired user cleanup to change store")
+	}
+	if _, ok := store.GetUser("alice"); ok {
+		t.Fatal("expected expired user to be deleted after retention")
+	}
+	if tunnels := store.ListTunnels("alice"); len(tunnels) != 0 {
+		t.Fatalf("expected expired user's tunnels to be deleted, got %#v", tunnels)
 	}
 }
 

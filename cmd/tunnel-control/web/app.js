@@ -209,6 +209,7 @@ function renderUsers() {
       <td>${u.maxPorts || 0}</td>
       <td>${resourceSummary(u.name)}</td>
       <td>${userTrafficSummary(u)}</td>
+      <td>${expirySummary(u)}</td>
       <td>
         <span class="badge ${u.hasNpsVerifyKey ? "ok" : "warn"}">NPS</span>
       </td>
@@ -222,7 +223,7 @@ function renderUsers() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(9);
+  `).join("") || emptyRow(11);
 }
 
 function nodes() {
@@ -522,6 +523,7 @@ function clearUserForm() {
   $('#user-form input[name="maxPorts"]').value = "3";
   $('#user-form input[name="rateLimit"]').value = "0";
   $('#user-form input[name="flowLimit"]').value = "0";
+  $('#user-form input[name="expiresAt"]').value = "";
 }
 
 function clearNodeForm() {
@@ -565,6 +567,7 @@ function editUser(name) {
   field(form, "enabled").checked = user.enabled;
   field(form, "rateLimit").value = user.rateLimit || 0;
   field(form, "flowLimit").value = user.flowLimit || 0;
+  field(form, "expiresAt").value = toDateTimeLocal(user.expiresAt);
   switchView("users");
 }
 
@@ -678,6 +681,7 @@ async function saveUser(event) {
     npsVerifyKey: data.npsVerifyKey.trim(),
     rateLimit: Number(data.rateLimit || 0),
     flowLimit: Number(data.flowLimit || 0),
+    expiresAt: fromDateTimeLocal(data.expiresAt),
   };
   await api("/api/users", { method: "POST", body: JSON.stringify(body) });
   clearUserForm();
@@ -904,6 +908,33 @@ function formatSpeed(bytesPerSec) {
   const sizes = ["B/s", "KB/s", "MB/s", "GB/s"];
   const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
   return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+function toDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (num) => String(num).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function expirySummary(u) {
+  if (!u.expiresAt) return `<span class="badge idle">永不过期</span>`;
+  const expiresAt = new Date(u.expiresAt);
+  if (Number.isNaN(expiresAt.getTime())) return `<span class="badge warn">时间异常</span>`;
+  const expired = expiresAt.getTime() <= Date.now();
+  const text = expiresAt.toLocaleString();
+  if (expired) {
+    const deleteHint = u.expiredAt ? `，预计 ${new Date(new Date(u.expiredAt).getTime() + 7 * 24 * 60 * 60 * 1000).toLocaleString()} 后清理` : "";
+    return `<span class="badge danger" title="已到期${deleteHint}">已到期</span><div class="muted tiny">${escapeHtml(text)}</div>`;
+  }
+  return `<span class="badge ok">有效</span><div class="muted tiny">${escapeHtml(text)}</div>`;
 }
 
 function userTrafficSummary(u) {
