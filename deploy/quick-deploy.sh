@@ -21,8 +21,7 @@ HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8088/healthz}"
 DEFAULT_ADMIN_USER="${DEFAULT_ADMIN_USER:-admin}"
 DEFAULT_ADMIN_PASSWORD="${DEFAULT_ADMIN_PASSWORD:-$(openssl rand -base64 12 2>/dev/null || echo 'change-this-password')}"
 SETUP_DOCKER_MIRROR="${SETUP_DOCKER_MIRROR:-0}"
-ALIYUN_DOCKER_MIRROR="${ALIYUN_DOCKER_MIRROR:-https://2bc9dt6w.mirror.aliyuncs.com}"
-ALIYUN_DOCKER_MIRROR_2="${ALIYUN_DOCKER_MIRROR_2:-https://docker.1ms.run}"
+DOCKER_REGISTRY_MIRROR="${DOCKER_REGISTRY_MIRROR:-https://docker.1ms.run}"
 
 OS=""
 VERSION_ID=""
@@ -86,17 +85,17 @@ setup_docker_mirror() {
     mkdir -p "$mirror_dir"
 
     if [[ -f "$daemon_json" ]] && command -v python3 >/dev/null 2>&1; then
-        python3 - "$daemon_json" "$ALIYUN_DOCKER_MIRROR" "$ALIYUN_DOCKER_MIRROR_2" <<'PY'
+        python3 - "$daemon_json" "$DOCKER_REGISTRY_MIRROR" <<'PY'
 import json
 import sys
 
-path, mirror1, mirror2 = sys.argv[1:]
+path, mirror = sys.argv[1:]
 try:
     with open(path, "r", encoding="utf-8") as f:
         config = json.load(f)
 except Exception:
     config = {}
-config["registry-mirrors"] = [mirror1, mirror2]
+config["registry-mirrors"] = [mirror]
 with open(path, "w", encoding="utf-8") as f:
     json.dump(config, f, indent=2)
 PY
@@ -104,8 +103,7 @@ PY
         cat > "$daemon_json" <<EOF
 {
   "registry-mirrors": [
-    "$ALIYUN_DOCKER_MIRROR",
-    "$ALIYUN_DOCKER_MIRROR_2"
+    "$DOCKER_REGISTRY_MIRROR"
   ]
 }
 EOF
@@ -119,7 +117,7 @@ EOF
 install_docker_on_centos() {
     step "Installing Docker on CentOS/RHEL"
     yum install -y yum-utils
-    yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
     yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
@@ -128,9 +126,9 @@ install_docker_on_ubuntu_debian() {
     apt-get update
     apt-get install -y ca-certificates curl gnupg
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL "https://mirrors.aliyun.com/docker-ce/linux/$OS/gpg" -o /etc/apt/keyrings/docker.asc
+    curl -fsSL "https://download.docker.com/linux/$OS/gpg" -o /etc/apt/keyrings/docker.asc
     chmod a+r /etc/apt/keyrings/docker.asc
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://mirrors.aliyun.com/docker-ce/linux/$OS $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$OS $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
         > /etc/apt/sources.list.d/docker.list
     apt-get update
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin

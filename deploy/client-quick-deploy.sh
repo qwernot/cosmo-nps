@@ -20,8 +20,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 
 # ---------- 配置区 ----------
-ALIYUN_DOCKER_MIRROR="https://2bc9dt6w.mirror.aliyuncs.com"
-ALIYUN_DOCKER_MIRROR_2="https://docker.1ms.run"
+DOCKER_REGISTRY_MIRROR="https://docker.1ms.run"
 
 # ========== 函数 ==========
 
@@ -83,7 +82,7 @@ try:
         config = json.load(f)
 except:
     config = {}
-config['registry-mirrors'] = ['$ALIYUN_DOCKER_MIRROR', '$ALIYUN_DOCKER_MIRROR_2']
+config['registry-mirrors'] = ['$DOCKER_REGISTRY_MIRROR']
 with open('$daemon_json', 'w') as f:
     json.dump(config, f, indent=2)
 "
@@ -92,12 +91,11 @@ with open('$daemon_json', 'w') as f:
         cat > "$daemon_json" <<EOF
 {
   "registry-mirrors": [
-    "$ALIYUN_DOCKER_MIRROR",
-    "$ALIYUN_DOCKER_MIRROR_2"
+    "$DOCKER_REGISTRY_MIRROR"
   ]
 }
 EOF
-        info "已配置镜像加速: $ALIYUN_DOCKER_MIRROR"
+        info "已配置镜像加速: $DOCKER_REGISTRY_MIRROR"
     fi
 
     if systemctl is-active docker &>/dev/null; then
@@ -109,7 +107,7 @@ EOF
 install_docker_on_centos() {
     step "安装 Docker (CentOS)"
     yum install -y yum-utils
-    yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
     yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
@@ -119,12 +117,12 @@ install_docker_on_ubuntu_debian() {
     apt-get install -y ca-certificates curl gnupg
 
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/$OS/gpg -o /etc/apt/keyrings/docker.asc
+    curl -fsSL https://download.docker.com/linux/$OS/gpg -o /etc/apt/keyrings/docker.asc
     chmod a+r /etc/apt/keyrings/docker.asc
 
     echo \
       "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-      https://mirrors.aliyun.com/docker-ce/linux/$OS \
+      https://download.docker.com/linux/$OS \
       \$(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
       tee /etc/apt/sources.list.d/docker.list > /dev/null
 
