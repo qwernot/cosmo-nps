@@ -1,911 +1,253 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tunnel Control - 部署与使用教程</title>
-<style>
-  :root { --blue: #3b82f6; --green: #10b981; --orange: #f59e0b; --red: #ef4444; --gray: #6b7280; --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #1e293b; --muted: #64748b; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
-  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
-  h1 { font-size: 2.2em; text-align: center; margin-bottom: 8px; background: linear-gradient(135deg, var(--blue), #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  .subtitle { text-align: center; color: var(--muted); margin-bottom: 48px; font-size: 1.1em; }
-  h2 { font-size: 1.6em; margin: 48px 0 20px; padding-bottom: 10px; border-bottom: 2px solid var(--blue); display: flex; align-items: center; gap: 10px; }
-  h2 .icon { font-size: 1.2em; }
-  h3 { font-size: 1.2em; margin: 28px 0 12px; color: var(--blue); }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 16px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-  .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; position: relative; }
-  .step-num { position: absolute; top: -14px; left: 20px; background: var(--blue); color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.9em; }
-  .step-num.green { background: var(--green); }
-  .step-num.orange { background: var(--orange); }
-  pre { background: #1e293b; color: #e2e8f0; padding: 16px 20px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 0.9em; line-height: 1.6; }
-  code { font-family: "JetBrains Mono", "Fira Code", Consolas, monospace; }
-  p code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; color: var(--blue); }
-  .note { background: #eff6ff; border-left: 4px solid var(--blue); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 0.95em; }
-  .warn { background: #fef3c7; border-left: 4px solid var(--orange); }
-  .success { background: #ecfdf5; border-left: 4px solid var(--green); }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-  th { background: #f8fafc; font-weight: 600; font-size: 0.9em; color: var(--muted); }
-  .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 0.8em; font-weight: 600; }
-  .badge-blue { background: #dbeafe; color: #1d4ed8; }
-  .badge-green { background: #d1fae5; color: #065f46; }
-  .badge-orange { background: #fef3c7; color: #92400e; }
-  .toc { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px 32px; margin: 32px 0; }
-  .toc h3 { margin-top: 0; color: var(--text); }
-  .toc ol { padding-left: 20px; }
-  .toc li { margin: 6px 0; }
-  .toc a { color: var(--blue); text-decoration: none; }
-  .toc a:hover { text-decoration: underline; }
-  .divider { height: 1px; background: var(--border); margin: 48px 0; }
-  .env-table td:first-child { font-family: monospace; color: var(--blue); white-space: nowrap; font-weight: 600; }
-  .env-table td:nth-child(2) { color: var(--muted); }
-  .port-tag { display: inline-block; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-size: 0.85em; margin: 2px; }
-  .flow-box { display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0; }
-  .flow-item { flex: 1; min-width: 200px; text-align: center; padding: 20px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
-  .flow-item .emoji { font-size: 2.5em; margin-bottom: 8px; }
-  .flow-item .label { font-weight: 600; margin-bottom: 4px; }
-  .flow-item .desc { font-size: 0.85em; color: var(--muted); }
-  .arrow-right { display: flex; align-items: center; font-size: 1.5em; color: var(--muted); }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cosmo NPS - 部署与使用教程</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --line: #dbe3ef;
+      --blue: #2563eb;
+      --green: #059669;
+      --orange: #d97706;
+      --code: #101828;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      line-height: 1.7;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 40px 22px 72px; }
+    header { margin-bottom: 28px; }
+    h1 { margin: 0 0 8px; font-size: 34px; letter-spacing: 0; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 16px; }
+    h2 { margin: 34px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 22px; }
+    h3 { margin: 22px 0 10px; font-size: 17px; }
+    p { margin: 8px 0 14px; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px;
+      margin: 14px 0;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .role { border-top: 3px solid var(--blue); }
+    .role.node { border-top-color: var(--green); }
+    .role.client { border-top-color: var(--orange); }
+    .role strong { display: block; margin-bottom: 4px; }
+    .role code { color: var(--blue); }
+    pre {
+      margin: 10px 0 16px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: var(--code);
+      color: #e4e7ec;
+      font-size: 13px;
+    }
+    code { font-family: Consolas, "JetBrains Mono", monospace; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; }
+    th, td { border-bottom: 1px solid var(--line); padding: 9px 10px; text-align: left; }
+    th { color: var(--muted); font-size: 13px; }
+    .note { border-left: 4px solid var(--blue); background: #eff6ff; padding: 12px 14px; border-radius: 6px; }
+    .warn { border-left-color: var(--orange); background: #fffbeb; }
+    @media (max-width: 760px) {
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: 28px; }
+    }
+  </style>
 </head>
 <body>
-<div class="container">
+  <main class="wrap">
+    <header>
+      <h1>Cosmo NPS</h1>
+      <p class="subtitle">NPS 多节点统一管理系统 · 总控、节点、客户端三角色部署教程</p>
+    </header>
 
-<h1>🚀 Tunnel Control</h1>
-<p class="subtitle">NPS 多节点统一管理 · 部署与使用教程</p>
+    <section class="card">
+      <h2>系统架构</h2>
+      <div class="grid">
+        <div class="card role">
+          <strong>总控后台</strong>
+          <code>darkver8/cosmo-nps:latest</code>
+          <p>只负责 Web 登录、用户、节点、隧道、端口池、域名池和配置下发，不承载业务流量。</p>
+        </div>
+        <div class="card role node">
+          <strong>节点服务</strong>
+          <code>darkver8/cosmo-nps-node:latest</code>
+          <p>运行 <code>tunnel-agent</code> 和 NPS，负责实际穿透入口、HTTP/HTTPS 代理和用户隧道端口。</p>
+        </div>
+        <div class="card role client">
+          <strong>用户客户端</strong>
+          <code>darkver8/cosmo-nps-client:latest</code>
+          <p>运行 <code>tunnel-client</code>。用户只连接总控，客户端自动读取隧道并连接对应节点。</p>
+        </div>
+      </div>
+      <p class="note">三个镜像已经拆分构建：总控、节点、客户端不再是同一个镜像打三个标签。</p>
+    </section>
 
-<!-- 系统架构图 (SVG) -->
-<div class="card">
-<svg viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-  <defs>
-    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#6366f1"/></linearGradient>
-    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#059669"/></linearGradient>
-    <linearGradient id="g3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#d97706"/></linearGradient>
-    <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.1"/></filter>
-  </defs>
-  <!-- 总控 -->
-  <rect x="30" y="60" width="220" height="240" rx="16" fill="white" stroke="#e2e8f0" filter="url(#shadow)"/>
-  <rect x="30" y="60" width="220" height="50" rx="16" fill="url(#g1)"/>
-  <rect x="30" y="94" width="220" height="16" fill="url(#g1)"/>
-  <text x="140" y="92" text-anchor="middle" fill="white" font-weight="bold" font-size="16">🖥️ 总控</text>
-  <text x="140" y="140" text-anchor="middle" fill="#1e293b" font-weight="bold" font-size="14">tunnel-all</text>
-  <text x="140" y="165" text-anchor="middle" fill="#64748b" font-size="12">darkver8/tunnel-all:latest</text>
-  <text x="140" y="195" text-anchor="middle" fill="#3b82f6" font-weight="bold" font-size="13">端口: 8088</text>
-  <text x="140" y="220" text-anchor="middle" fill="#64748b" font-size="11">Web 后台管理</text>
-  <text x="140" y="240" text-anchor="middle" fill="#64748b" font-size="11">用户 · 节点 · 隧道管理</text>
-  <text x="140" y="260" text-anchor="middle" fill="#64748b" font-size="11">配置下发</text>
-  <!-- 节点 -->
-  <rect x="340" y="40" width="220" height="280" rx="16" fill="white" stroke="#e2e8f0" filter="url(#shadow)"/>
-  <rect x="340" y="40" width="220" height="50" rx="16" fill="url(#g2)"/>
-  <rect x="340" y="74" width="220" height="16" fill="url(#g2)"/>
-  <text x="450" y="72" text-anchor="middle" fill="white" font-weight="bold" font-size="16">⚡ 节点</text>
-  <text x="450" y="120" text-anchor="middle" fill="#1e293b" font-weight="bold" font-size="14">tunnel-port (tunnel-agent)</text>
-  <text x="450" y="145" text-anchor="middle" fill="#64748b" font-size="12">darkver8/tunnel-port:latest</text>
-  <text x="450" y="175" text-anchor="middle" fill="#10b981" font-weight="bold" font-size="12">18024 NPS Bridge</text>
-  <text x="450" y="195" text-anchor="middle" fill="#10b981" font-weight="bold" font-size="12">18025 TLS Bridge</text>
-  <text x="450" y="215" text-anchor="middle" fill="#10b981" font-weight="bold" font-size="12">9080 HTTP Proxy</text>
-  <text x="450" y="235" text-anchor="middle" fill="#10b981" font-weight="bold" font-size="12">9443 HTTPS Proxy</text>
-  <text x="450" y="260" text-anchor="middle" fill="#64748b" font-size="11">18089 Agent API</text>
-  <text x="450" y="285" text-anchor="middle" fill="#64748b" font-size="11">10000-20000 用户隧道端口</text>
-  <!-- 客户端 -->
-  <rect x="650" y="60" width="220" height="240" rx="16" fill="white" stroke="#e2e8f0" filter="url(#shadow)"/>
-  <rect x="650" y="60" width="220" height="50" rx="16" fill="url(#g3)"/>
-  <rect x="650" y="94" width="220" height="16" fill="url(#g3)"/>
-  <text x="760" y="92" text-anchor="middle" fill="white" font-weight="bold" font-size="16">💻 客户端</text>
-  <text x="760" y="140" text-anchor="middle" fill="#1e293b" font-weight="bold" font-size="14">tunnel-client</text>
-  <text x="760" y="165" text-anchor="middle" fill="#64748b" font-size="12">darkver8/tunnel-client:latest</text>
-  <text x="760" y="195" text-anchor="middle" fill="#d97706" font-weight="bold" font-size="13">端口: 18090</text>
-  <text x="760" y="220" text-anchor="middle" fill="#64748b" font-size="11">Web GUI Dashboard</text>
-  <text x="760" y="240" text-anchor="middle" fill="#64748b" font-size="11">自动连接对应节点</text>
-  <text x="760" y="260" text-anchor="middle" fill="#64748b" font-size="11">Windows 托盘 / Linux 守护</text>
-  <!-- 箭头: 总控→节点 -->
-  <line x1="250" y1="150" x2="340" y2="150" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrowhead)"/>
-  <line x1="250" y1="180" x2="340" y2="180" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrowhead)"/>
-  <text x="295" y="143" text-anchor="middle" fill="#94a3b8" font-size="10">配置推送</text>
-  <text x="295" y="196" text-anchor="middle" fill="#94a3b8" font-size="10">流量上报</text>
-  <!-- 箭头: 客户端→总控 -->
-  <path d="M650 160 Q 450 340 250 200" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrowOrange)"/>
-  <text x="430" y="330" text-anchor="middle" fill="#f59e0b" font-size="11">① 登录 + 获取隧道配置</text>
-  <!-- 箭头: 客户端→节点 -->
-  <line x1="650" y1="200" x2="560" y2="200" stroke="#10b981" stroke-width="2" marker-end="url(#arrowGreen)"/>
-  <text x="605" y="218" text-anchor="middle" fill="#10b981" font-size="11">② NPS 隧道连接</text>
-  <!-- 箭头定义 -->
-  <defs>
-    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker>
-    <marker id="arrowOrange" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto"><polygon points="10 0, 0 3.5, 10 7" fill="#f59e0b"/></marker>
-    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto"><polygon points="10 0, 0 3.5, 10 7" fill="#10b981"/></marker>
-  </defs>
-</svg>
-</div>
+    <section>
+      <h2>一、总控部署</h2>
+      <p>总控只需要开放 <code>8088/tcp</code>。</p>
+      <h3>一键脚本</h3>
+      <pre><code>git clone https://github.com/qwernot/cosmo-nps.git
+cd cosmo-nps
+sudo bash deploy/quick-deploy.sh</code></pre>
 
-<div class="note">
-  <strong>💡 核心流程：</strong>客户端先登录总控获取隧道配置 → 然后自动连接对应节点的 NPS Bridge 建立隧道。总控只负责管理，不参与数据转发。
-</div>
+      <h3>静默部署</h3>
+      <pre><code>sudo PUBLIC_ADDR=192.168.6.64 \
+  ADMIN_USER=admin \
+  ADMIN_PASSWORD='change-this-password' \
+  NONINTERACTIVE=1 \
+  bash deploy/quick-deploy.sh</code></pre>
 
-<!-- 目录 -->
-<div class="toc" id="toc">
-  <h3>📑 目录</h3>
-  <ol>
-    <li><a href="#part1">第一部分：总控部署</a>
-      <ol>
-        <li><a href="#p1-quick">🚀 一键脚本部署（推荐）</a></li>
-        <li><a href="#p1-manual">手动 Docker 部署</a></li>
-      </ol>
-    </li>
-    <li><a href="#part2">第二部分：总控使用（Web 后台）</a>
-      <ol>
-        <li><a href="#p2-login">登录后台</a></li>
-        <li><a href="#p2-user">创建用户</a></li>
-        <li><a href="#p2-node">创建节点</a></li>
-        <li><a href="#p2-tunnel">创建隧道</a></li>
-        <li><a href="#p2-config">查看客户端配置</a></li>
-      </ol>
-    </li>
-    <li><a href="#part3">第三部分：节点部署</a>
-      <ol>
-        <li><a href="#p3-quick">🚀 一键部署（推荐）</a></li>
-        <li><a href="#p3-manual">手动 Docker 部署</a></li>
-      </ol>
-    </li>
-    <li><a href="#part4">第四部分：客户端部署与使用</a>
-      <ol>
-        <li><a href="#p4-quick">🚀 一键脚本部署（推荐）</a></li>
-        <li><a href="#p4-windows">Windows GUI 客户端</a></li>
-        <li><a href="#p4-linux">Linux 守护进程</a></li>
-        <li><a href="#p4-cmd">命令行模式</a></li>
-        <li><a href="#p4-docker">Docker 部署</a></li>
-      </ol>
-    </li>
-    <li><a href="#part5">第五部分：端口放行清单</a></li>
-    <li><a href="#part6">附录：常用命令</a></li>
-  </ol>
-</div>
-
-<!-- ==================== 第一部分：总控部署 ==================== -->
-<div class="divider"></div>
-<h2 id="part1"><span class="icon">🖥️</span> 第一部分：总控部署</h2>
-
-<p>总控是整个系统的核心管理中枢，负责 Web 后台、用户管理、节点管理和隧道配置下发。</p>
-
-<h3 id="p1-quick">🚀 方式一：一键脚本部署（推荐）</h3>
-<p>脚本会自动完成以下所有操作：检测系统 → 安装 Docker（含阿里云镜像加速）→ 拉取镜像 → 交互式配置 → 启动服务 → 健康检查。</p>
-
-<div class="card">
-<svg viewBox="0 0 800 220" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-  <rect width="800" height="220" rx="12" fill="#1e293b"/>
-  <text x="30" y="30" fill="#10b981" font-size="13" font-family="monospace" font-weight="bold">[STEP]  tunnel-all 总控快速部署</text>
-  <text x="30" y="52" fill="#10b981" font-size="12" font-family="monospace">[INFO]  检测到系统: ubuntu 22.04</text>
-  <text x="30" y="74" fill="#10b981" font-size="12" font-family="monospace">[INFO]  Docker 已安装</text>
-  <text x="30" y="96" fill="#10b981" font-size="12" font-family="monospace">[INFO]  Docker Compose 已安装</text>
-  <text x="30" y="118" fill="#06b6d4" font-size="12" font-family="monospace">[STEP]  部署 tunnel-control 总控服务</text>
-  <text x="30" y="140" fill="#94a3b8" font-size="12" font-family="monospace">========== 总控配置 ==========</text>
-  <text x="30" y="162" fill="#e2e8f0" font-size="12" font-family="monospace">公网IP/域名 [留空=本机IP]: <tspan fill="#f59e0b">1.2.3.4</tspan></text>
-  <text x="30" y="184" fill="#e2e8f0" font-size="12" font-family="monospace">管理员用户名 [admin]: <tspan fill="#f59e0b">admin</tspan></text>
-  <text x="30" y="206" fill="#e2e8f0" font-size="12" font-family="monospace">管理员密码 [自动生成]: <tspan fill="#f59e0b">MyStr0ngP@ss</tspan></text>
-</svg>
-<p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">一键脚本交互式配置界面</p>
-</div>
-
-<div class="step">
-  <div class="step-num">1</div>
-  <h3>在服务器上执行一键部署命令</h3>
-  <p>SSH 登录到总控服务器，以 root 或 sudo 执行：</p>
-  <pre><code># 下载项目并执行一键部署脚本
-git clone https://github.com/qwernot/tunnel-all.git
-cd tunnel-all
-bash deploy/quick-deploy.sh</code></pre>
-  <p>脚本会交互式询问三个配置项：</p>
-  <table>
-    <tr><th>提示</th><th>说明</th><th>留空默认值</th></tr>
-    <tr><td>公网 IP/域名</td><td>服务器的公网地址，留空自动获取</td><td>自动检测</td></tr>
-    <tr><td>管理员用户名</td><td>后台登录账号</td><td><code>admin</code></td></tr>
-    <tr><td>管理员密码</td><td>后台登录密码</td><td>随机生成 12 位强密码</td></tr>
-  </table>
-</div>
-
-<div class="step">
-  <div class="step-num">2</div>
-  <h3>等待自动完成</h3>
-  <p>脚本会自动安装 Docker、配置镜像加速、拉取镜像、启动服务，最后进行健康检查。成功后输出：</p>
-  <pre><code>==========================================
-  ✓ 总控部署成功！
-==========================================
-
-  访问地址: http://1.2.3.4:8088
-  用户名:   admin
-  密码:     MyStr0ngP@ss
-
-  常用命令:
-    查看状态: docker compose ps
-    查看日志: docker compose logs -f tunnel-stack
-    重启服务: docker compose restart tunnel-stack
-    停止服务: docker compose down
-==========================================</code></pre>
-  <div class="success">
-    <strong>✅ 部署完成！</strong>请妥善保存输出的账号密码，直接访问 Web 后台即可。跳到 <a href="#part2">第二部分：总控使用</a>。
-  </div>
-</div>
-
-<h3 id="p1-manual">方式二：手动 Docker 部署</h3>
-<p>如果你已经安装了 Docker，或者需要自定义配置，可以手动部署。</p>
-
-<div class="card">
-  <ul>
-    <li>一台有公网 IP 的服务器（或内网可访问的机器）</li>
-    <li>已安装 Docker 和 Docker Compose</li>
-    <li>放行端口 <span class="port-tag">8088/tcp</span>（Web 后台）</li>
-  </ul>
-</div>
-
-<div class="step">
-  <div class="step-num">1</div>
-  <h3>创建部署目录</h3>
-  <pre><code>mkdir -p ~/tunnel-stack && cd ~/tunnel-stack</code></pre>
-</div>
-
-<div class="step">
-  <div class="step-num">2</div>
-  <h3>编写 docker-compose.yml</h3>
-  <pre><code>services:
-  tunnel-control:
-    image: darkver8/tunnel-all:latest
+      <h3>Compose 示例</h3>
+      <pre><code>services:
+  cosmo-nps:
+    image: darkver8/cosmo-nps:latest
     container_name: tunnel-stack
     restart: unless-stopped
     network_mode: host
     environment:
-      PUBLIC_ADDR: 192.168.6.64        # 替换为你的服务器公网 IP
-      ADMIN_USER: admin                # 管理员用户名
-      ADMIN_PASSWORD: change-this-password  # 管理员密码（务必修改！）
+      PUBLIC_ADDR: 192.168.6.64
+      ADMIN_USER: admin
+      ADMIN_PASSWORD: change-this-password
     volumes:
       - ./data:/app/data</code></pre>
-  <div class="note">
-    <strong>环境变量说明：</strong>
-    <table class="env-table">
-      <tr><td>PUBLIC_ADDR</td><td>服务器公网地址，用于生成客户端配置中的连接地址</td></tr>
-      <tr><td>ADMIN_USER</td><td>首次启动时自动创建的管理员用户名</td></tr>
-      <tr><td>ADMIN_PASSWORD</td><td>管理员密码，请设置强密码</td></tr>
-    </table>
-  </div>
-</div>
 
-<div class="step">
-  <div class="step-num">3</div>
-  <h3>启动总控</h3>
-  <pre><code>docker compose up -d</code></pre>
-  <p>查看启动日志确认是否正常运行：</p>
-  <pre><code>docker compose logs -f tunnel-stack</code></pre>
-  <p>看到类似 <code>created bootstrap admin user "admin"</code> 和 <code>listening on :8088</code> 即表示启动成功。</p>
-</div>
+      <p>访问地址：</p>
+      <pre><code>http://总控IP:8088</code></pre>
+    </section>
 
-<div class="step">
-  <div class="step-num">4</div>
-  <h3>验证运行</h3>
-  <pre><code>curl http://127.0.0.1:8088/healthz</code></pre>
-  <p>返回 <code>ok</code> 即表示总控正常运行。访问 <code>http://你的IP:8088</code> 即可打开 Web 后台。</p>
-</div>
+    <section>
+      <h2>二、节点部署</h2>
+      <p>先在总控后台创建节点，复制节点 Token。节点服务器推荐使用后台生成的一键部署命令，也可以手写 compose。</p>
 
-<!-- ==================== 第二部分：总控使用 ==================== -->
-<div class="divider"></div>
-<h2 id="part2"><span class="icon">⚙️</span> 第二部分：总控使用（Web 后台）</h2>
+      <h3>后台生成的一键命令</h3>
+      <pre><code>curl -fsSL "http://总控IP:8088/api/agent/bootstrap?id=节点ID&amp;token=节点TOKEN" | bash</code></pre>
 
-<h3 id="p2-login">登录后台</h3>
-<div class="card">
-  <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-    <rect width="800" height="320" rx="12" fill="#f1f5f9"/>
-    <rect x="250" y="30" width="300" height="260" rx="12" fill="white" stroke="#e2e8f0" filter="url(#shadow)"/>
-    <rect x="250" y="30" width="300" height="60" rx="12" fill="white"/>
-    <rect x="340" y="46" width="40" height="30" rx="4" fill="none" stroke="#6366f1" stroke-width="2"/>
-    <rect x="344" y="50" width="14" height="6" rx="1" fill="#6366f1"/>
-    <rect x="344" y="60" width="14" height="6" rx="1" fill="#6366f1"/>
-    <line x1="362" y1="53" x2="376" y2="53" stroke="#6366f1" stroke-width="2"/>
-    <line x1="362" y1="63" x2="376" y2="63" stroke="#6366f1" stroke-width="2"/>
-    <text x="400" y="110" text-anchor="middle" fill="#1e293b" font-weight="bold" font-size="18">Tunnel Control</text>
-    <text x="400" y="130" text-anchor="middle" fill="#94a3b8" font-size="12">统一穿透后台</text>
-    <rect x="290" y="150" width="220" height="36" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="300" y="173" fill="#94a3b8" font-size="13">admin</text>
-    <rect x="290" y="196" width="220" height="36" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="300" y="219" fill="#94a3b8" font-size="13">••••••••</text>
-    <rect x="290" y="248" width="220" height="36" rx="8" fill="#6366f1"/>
-    <text x="400" y="271" text-anchor="middle" fill="white" font-weight="bold" font-size="14">登 录</text>
-    <text x="400" y="305" text-anchor="middle" fill="#94a3b8" font-size="10">首次启动使用环境变量中的管理员账号</text>
-  </svg>
-  <p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">登录页面示意图</p>
-</div>
-
-<p>打开浏览器访问 <code>http://你的服务器IP:8088</code>，使用设置的管理员账号密码登录。</p>
-
-<h3 id="p2-user">创建用户</h3>
-<p>登录后台后，点击左侧导航 <strong>「👥 用户」</strong> 进入用户管理页面。</p>
-
-<div class="card">
-  <svg viewBox="0 0 800 380" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-    <rect width="800" height="380" rx="12" fill="#f1f5f9"/>
-    <!-- 左侧表单 -->
-    <rect x="20" y="20" width="360" height="340" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="40" y="50" fill="#1e293b" font-weight="bold" font-size="15">创建用户</text>
-    <text x="40" y="80" fill="#64748b" font-size="12">用户名</text>
-    <rect x="40" y="86" width="320" height="30" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="106" fill="#3b82f6" font-size="12" font-weight="600">alice</text>
-    <text x="40" y="136" fill="#64748b" font-size="12">Web 密码</text>
-    <rect x="40" y="142" width="320" height="30" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="162" fill="#94a3b8" font-size="12">alice123</text>
-    <text x="40" y="192" fill="#64748b" font-size="12">端口池</text>
-    <rect x="40" y="198" width="320" height="30" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="218" fill="#3b82f6" font-size="12" font-weight="600">10000-10010,10020</text>
-    <text x="40" y="248" fill="#64748b" font-size="12">域名池</text>
-    <rect x="40" y="254" width="320" height="30" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="274" fill="#3b82f6" font-size="12" font-weight="600">*.example.com</text>
-    <rect x="40" y="300" width="140" height="36" rx="8" fill="#6366f1"/>
-    <text x="110" y="323" text-anchor="middle" fill="white" font-weight="bold" font-size="13">创建用户</text>
-    <!-- 右侧表格 -->
-    <rect x="400" y="20" width="380" height="340" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="420" y="50" fill="#1e293b" font-weight="bold" font-size="15">用户列表</text>
-    <rect x="410" y="65" width="360" height="30" rx="4" fill="#f8fafc"/>
-    <text x="420" y="85" fill="#64748b" font-size="11" font-weight="600">用户名</text>
-    <text x="500" y="85" fill="#64748b" font-size="11" font-weight="600">端口池</text>
-    <text x="600" y="85" fill="#64748b" font-size="11" font-weight="600">状态</text>
-    <text x="680" y="85" fill="#64748b" font-size="11" font-weight="600">操作</text>
-    <text x="420" y="115" fill="#1e293b" font-size="12">admin</text>
-    <text x="500" y="115" fill="#64748b" font-size="12">-</text>
-    <rect x="595" y="103" width="40" height="18" rx="9" fill="#d1fae5"/>
-    <text x="615" y="116" text-anchor="middle" fill="#065f46" font-size="10" font-weight="600">启用</text>
-    <text x="420" y="145" fill="#1e293b" font-size="12">alice</text>
-    <text x="500" y="145" fill="#64748b" font-size="12">10000-10010</text>
-    <rect x="595" y="133" width="40" height="18" rx="9" fill="#d1fae5"/>
-    <text x="615" y="146" text-anchor="middle" fill="#065f46" font-size="10" font-weight="600">启用</text>
-    <rect x="660" y="133" width="36" height="18" rx="4" fill="#f1f5f9"/>
-    <text x="678" y="146" text-anchor="middle" fill="#64748b" font-size="10">编辑</text>
-    <rect x="700" y="133" width="36" height="18" rx="4" fill="#fef2f2"/>
-    <text x="718" y="146" text-anchor="middle" fill="#ef4444" font-size="10">删除</text>
-  </svg>
-  <p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">用户管理页面示意图</p>
-</div>
-
-<p>填写以下关键信息：</p>
-<table>
-  <tr><th>字段</th><th>说明</th><th>示例</th></tr>
-  <tr><td>用户名</td><td>客户端登录使用的账号</td><td><code>alice</code></td></tr>
-  <tr><td>Web 密码</td><td>用户登录后台的密码</td><td><code>alice123</code></td></tr>
-  <tr><td>角色</td><td><code>user</code> 普通用户 / <code>admin</code> 管理员</td><td><code>user</code></td></tr>
-  <tr><td>最大隧道数</td><td>允许创建的隧道上限</td><td><code>3</code></td></tr>
-  <tr><td>带宽限制</td><td>Mbps，0 = 不限速</td><td><code>10</code></td></tr>
-  <tr><td>月流量限制</td><td>GB，0 = 不限制</td><td><code>100</code></td></tr>
-  <tr><td>端口池</td><td>分配给该用户的端口范围</td><td><code>10000-10010,10020</code></td></tr>
-  <tr><td>域名池</td><td>分配给该用户的域名</td><td><code>*.example.com</code></td></tr>
-  <tr><td>NPS VerifyKey</td><td>留空自动生成</td><td>自动</td></tr>
-</table>
-
-<div class="success">
-  <strong>✅ 用户创建后：</strong>系统会自动生成 NPS VerifyKey，后续客户端连接节点时需要用到。
-</div>
-
-<h3 id="p2-node">创建节点</h3>
-<p>点击左侧导航 <strong>「🖥️ 节点」</strong> 进入节点管理页面。</p>
-
-<div class="card">
-  <svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-    <rect width="800" height="340" rx="12" fill="#f1f5f9"/>
-    <rect x="20" y="20" width="360" height="300" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="40" y="50" fill="#1e293b" font-weight="bold" font-size="15">创建节点</text>
-    <text x="40" y="78" fill="#64748b" font-size="12">节点 ID</text>
-    <rect x="40" y="84" width="150" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="103" fill="#3b82f6" font-size="12" font-weight="600">edge-8</text>
-    <text x="200" y="78" fill="#64748b" font-size="12">节点名称</text>
-    <rect x="200" y="84" width="160" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="210" y="103" fill="#1e293b" font-size="12">香港节点</text>
-    <text x="40" y="133" fill="#64748b" font-size="12">公网地址</text>
-    <rect x="40" y="139" width="320" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="158" fill="#3b82f6" font-size="12" font-weight="600">8.162.0.198</text>
-    <text x="40" y="188" fill="#64748b" font-size="12">节点 Token（留空自动生成）</text>
-    <rect x="40" y="194" width="320" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="213" fill="#94a3b8" font-size="12">自动生成</text>
-    <text x="40" y="243" fill="#64748b" font-size="12">节点端口池</text>
-    <rect x="40" y="249" width="320" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="268" fill="#3b82f6" font-size="12" font-weight="600">10000-20000</text>
-    <rect x="40" y="290" width="140" height="30" rx="8" fill="#6366f1"/>
-    <text x="110" y="310" text-anchor="middle" fill="white" font-weight="bold" font-size="12">创建节点</text>
-    <!-- 右侧 -->
-    <rect x="400" y="20" width="380" height="300" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="420" y="50" fill="#1e293b" font-weight="bold" font-size="15">节点列表</text>
-    <rect x="410" y="65" width="360" height="28" rx="4" fill="#f8fafc"/>
-    <text x="420" y="84" fill="#64748b" font-size="10" font-weight="600">节点</text>
-    <text x="500" y="84" fill="#64748b" font-size="10" font-weight="600">公网地址</text>
-    <text x="590" y="84" fill="#64748b" font-size="10" font-weight="600">引擎</text>
-    <text x="650" y="84" fill="#64748b" font-size="10" font-weight="600">状态</text>
-    <text x="720" y="84" fill="#64748b" font-size="10" font-weight="600">操作</text>
-    <text x="420" y="112" fill="#1e293b" font-size="12" font-weight="600">香港节点</text>
-    <text x="420" y="126" fill="#94a3b8" font-size="10">edge-8</text>
-    <text x="500" y="112" fill="#64748b" font-size="12">8.162.0.198</text>
-    <rect x="585" y="101" width="34" height="16" rx="8" fill="#d1fae5"/>
-    <text x="602" y="113" text-anchor="middle" fill="#065f46" font-size="9" font-weight="600">NPS</text>
-    <rect x="645" y="101" width="34" height="16" rx="8" fill="#d1fae5"/>
-    <text x="662" y="113" text-anchor="middle" fill="#065f46" font-size="9" font-weight="600">启用</text>
-    <rect x="710" y="101" width="36" height="18" rx="4" fill="#dbeafe"/>
-    <text x="728" y="114" text-anchor="middle" fill="#3b82f6" font-size="10" font-weight="600">部署</text>
-  </svg>
-  <p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">节点管理页面示意图</p>
-</div>
-
-<table>
-  <tr><th>字段</th><th>说明</th><th>示例</th></tr>
-  <tr><td>节点 ID</td><td>唯一标识，建议使用简短名称</td><td><code>edge-8</code></td></tr>
-  <tr><td>节点名称</td><td>显示名称</td><td><code>香港节点</code></td></tr>
-  <tr><td>公网地址</td><td>节点服务器的 IP 或域名</td><td><code>8.162.0.198</code></td></tr>
-  <tr><td>节点 Token</td><td>留空自动生成，<strong>创建后需复制</strong></td><td>自动生成</td></tr>
-  <tr><td>节点端口池</td><td>节点可用的端口范围</td><td><code>10000-20000</code></td></tr>
-  <tr><td>NPS 端口</td><td>NPS Bridge 端口（默认 18024）</td><td><code>18024</code></td></tr>
-</table>
-
-<div class="warn">
-  <strong>⚠️ 重要：</strong>节点创建后，请立即点击 <strong>「部署」</strong> 按钮复制一键部署命令，或手动复制 <strong>节点 Token</strong>，后续部署节点时需要用到。
-</div>
-
-<h3 id="p2-tunnel">创建隧道</h3>
-<p>点击左侧导航 <strong>「🔌 隧道」</strong> 进入隧道管理页面。</p>
-
-<div class="card">
-  <svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-    <rect width="800" height="340" rx="12" fill="#f1f5f9"/>
-    <rect x="20" y="20" width="360" height="300" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="40" y="50" fill="#1e293b" font-weight="bold" font-size="15">创建隧道</text>
-    <text x="40" y="78" fill="#64748b" font-size="12">用户</text>
-    <rect x="40" y="84" width="150" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="103" fill="#3b82f6" font-size="12" font-weight="600">alice</text>
-    <text x="200" y="78" fill="#64748b" font-size="12">节点</text>
-    <rect x="200" y="84" width="160" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="210" y="103" fill="#3b82f6" font-size="12" font-weight="600">edge-8</text>
-    <text x="40" y="133" fill="#64748b" font-size="12">模式</text>
-    <rect x="40" y="139" width="150" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="158" fill="#3b82f6" font-size="12" font-weight="600">tcp</text>
-    <text x="200" y="133" fill="#64748b" font-size="12">远程端口</text>
-    <rect x="200" y="139" width="160" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="210" y="158" fill="#3b82f6" font-size="12" font-weight="600">10001</text>
-    <text x="40" y="188" fill="#64748b" font-size="12">本地 IP</text>
-    <rect x="40" y="194" width="150" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="213" fill="#1e293b" font-size="12">127.0.0.1</text>
-    <text x="200" y="188" fill="#64748b" font-size="12">本地端口</text>
-    <rect x="200" y="194" width="160" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="210" y="213" fill="#3b82f6" font-size="12" font-weight="600">8080</text>
-    <text x="40" y="243" fill="#64748b" font-size="12">备注</text>
-    <rect x="40" y="249" width="320" height="28" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-    <text x="50" y="268" fill="#1e293b" font-size="12">web 服务</text>
-    <rect x="40" y="290" width="140" height="30" rx="8" fill="#6366f1"/>
-    <text x="110" y="310" text-anchor="middle" fill="white" font-weight="bold" font-size="12">创建隧道</text>
-    <!-- 右侧表格 -->
-    <rect x="400" y="20" width="380" height="300" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="420" y="50" fill="#1e293b" font-weight="bold" font-size="15">隧道列表</text>
-    <rect x="410" y="65" width="360" height="28" rx="4" fill="#f8fafc"/>
-    <text x="420" y="84" fill="#64748b" font-size="10" font-weight="600">用户</text>
-    <text x="470" y="84" fill="#64748b" font-size="10" font-weight="600">模式</text>
-    <text x="520" y="84" fill="#64748b" font-size="10" font-weight="600">远程端口</text>
-    <text x="590" y="84" fill="#64748b" font-size="10" font-weight="600">本地目标</text>
-    <text x="680" y="84" fill="#64748b" font-size="10" font-weight="600">状态</text>
-    <text x="420" y="112" fill="#1e293b" font-size="12">alice</text>
-    <rect x="465" y="101" width="30" height="16" rx="8" fill="#dbeafe"/>
-    <text x="480" y="113" text-anchor="middle" fill="#1d4ed8" font-size="9" font-weight="600">TCP</text>
-    <text x="520" y="112" fill="#64748b" font-size="12">10001</text>
-    <text x="590" y="112" fill="#64748b" font-size="12">127.0.0.1:8080</text>
-    <rect x="675" y="101" width="34" height="16" rx="8" fill="#d1fae5"/>
-    <text x="692" y="113" text-anchor="middle" fill="#065f46" font-size="9" font-weight="600">启用</text>
-  </svg>
-  <p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">隧道管理页面示意图</p>
-</div>
-
-<p>隧道支持以下模式：</p>
-<table>
-  <tr><th>模式</th><th>说明</th><th>是否需要端口</th><th>是否需要域名</th></tr>
-  <tr><td><span class="badge badge-blue">tcp</span></td><td>TCP 端口转发</td><td>✅ 远程端口</td><td>❌</td></tr>
-  <tr><td><span class="badge badge-blue">udp</span></td><td>UDP 端口转发</td><td>✅ 远程端口</td><td>❌</td></tr>
-  <tr><td><span class="badge badge-green">socks5</span></td><td>SOCKS5 代理</td><td>✅ 远程端口</td><td>❌</td></tr>
-  <tr><td><span class="badge badge-orange">http</span></td><td>HTTP 域名转发</td><td>❌</td><td>✅ 域名</td></tr>
-  <tr><td><span class="badge badge-orange">https</span></td><td>HTTPS 域名转发</td><td>❌</td><td>✅ 域名</td></tr>
-</table>
-
-<div class="note">
-  <strong>💡 示例说明：</strong>创建一个 TCP 隧道，远程端口 <code>10001</code>，本地目标 <code>127.0.0.1:8080</code>。用户访问 <code>节点IP:10001</code> 即会被转发到用户本地机器的 <code>8080</code> 端口。
-</div>
-
-<h3 id="p2-config">查看客户端配置</h3>
-<p>点击左侧导航 <strong>「⚙️ 配置」</strong>，选择用户和节点，可以查看：</p>
-<ul>
-  <li><strong>NPS 命令</strong>：原生 npc 启动命令</li>
-  <li><strong>统一客户端</strong>：tunnel-client 启动命令（推荐）</li>
-  <li><strong>NPS 密钥</strong>：用户的 NPS VerifyKey</li>
-</ul>
-
-<!-- ==================== 第三部分：节点部署 ==================== -->
-<div class="divider"></div>
-<h2 id="part3"><span class="icon">⚡</span> 第三部分：节点部署</h2>
-
-<p>节点是实际承载隧道流量的服务器，运行 NPS 引擎并接收总控的配置下发。</p>
-
-<h3>前置要求</h3>
-<div class="card">
-  <ul>
-    <li>一台有公网 IP 的服务器</li>
-    <li>已安装 Docker 和 Docker Compose（或使用一键部署脚本）</li>
-    <li>在总控后台已创建节点，并获取了 <strong>节点 Token</strong></li>
-    <li>放行以下端口</li>
-  </ul>
-  <table>
-    <tr><th>端口</th><th>用途</th></tr>
-    <tr><td><span class="port-tag">18089/tcp</span></td><td>节点配置接口（建议只允许总控访问）</td></tr>
-    <tr><td><span class="port-tag">18024/tcp</span></td><td>NPS Bridge</td></tr>
-    <tr><td><span class="port-tag">18025/tcp</span></td><td>NPS TLS Bridge</td></tr>
-    <tr><td><span class="port-tag">9080/tcp</span></td><td>NPS HTTP Proxy</td></tr>
-    <tr><td><span class="port-tag">9443/tcp</span></td><td>NPS HTTPS Proxy</td></tr>
-    <tr><td><span class="port-tag">10000-20000/tcp+udp</span></td><td>用户隧道端口</td></tr>
-  </table>
-</div>
-
-<h3 id="p3-quick">方式一：一键部署（推荐）</h3>
-<p>总控后台内置了节点一键部署功能。脚本会优先通过 Docker 启动容器节点；若无 Docker，则自动下载二进制并注册为 Systemd 系统服务。</p>
-<div class="step">
-  <div class="step-num green">1</div>
-  <h3>在总控后台获取部署命令</h3>
-  <p>进入 <strong>「🖥️ 节点」</strong> 页面，找到目标节点，点击 <strong>「部署」</strong> 按钮。</p>
-  <div class="card">
-    <svg viewBox="0 0 700 260" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-      <rect width="700" height="260" rx="12" fill="#f1f5f9"/>
-      <rect x="50" y="20" width="600" height="220" rx="12" fill="white" stroke="#e2e8f0" filter="url(#shadow)"/>
-      <text x="350" y="50" text-anchor="middle" fill="#1e293b" font-weight="bold" font-size="16">一键部署节点</text>
-      <text x="80" y="85" fill="#64748b" font-size="12">在任何 Linux 服务器上运行以下命令即可完成部署：</text>
-      <rect x="80" y="100" width="540" height="50" rx="8" fill="#1e293b"/>
-      <text x="95" y="125" fill="#10b981" font-size="12" font-family="monospace">curl -fsSL "http://192.168.6.64:8088/api/agent/bootstrap</text>
-      <text x="95" y="140" fill="#10b981" font-size="12" font-family="monospace">  ?id=edge-8&amp;token=xxxx" | bash</text>
-      <rect x="520" y="108" width="85" height="30" rx="6" fill="#6366f1"/>
-      <text x="562" y="128" text-anchor="middle" fill="white" font-size="12" font-weight="bold">复制命令</text>
-      <text x="80" y="180" fill="#64748b" font-size="12">💡 脚本会优先使用 Docker 部署；无 Docker 则自动下载二进制注册 Systemd 服务。</text>
-      <rect x="350" y="195" width="80" height="30" rx="6" fill="#f1f5f9" stroke="#e2e8f0"/>
-      <text x="390" y="215" text-anchor="middle" fill="#64748b" font-size="12">✕ 关闭</text>
-    </svg>
-    <p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">一键部署弹窗示意图</p>
-  </div>
-</div>
-
-<div class="step">
-  <div class="step-num green">2</div>
-  <h3>在节点服务器上执行</h3>
-  <p>SSH 登录到节点服务器，粘贴执行复制的命令即可。脚本会自动完成所有配置。</p>
-</div>
-
-<h3 id="p3-manual">方式二：Docker 手动部署</h3>
-<p>如果你已经安装了 Docker，或者需要自定义端口配置，可以手动部署。</p>
-<div class="step">
-  <div class="step-num green">1</div>
-  <h3>创建部署目录</h3>
-  <pre><code>mkdir -p ~/tunnel-agent && cd ~/tunnel-agent</code></pre>
-</div>
-
-<div class="step">
-  <div class="step-num green">2</div>
-  <h3>编写 docker-compose.yml</h3>
-  <pre><code>services:
-  tunnel-agent:
-    image: darkver8/tunnel-port:latest
+      <h3>Compose 示例</h3>
+      <pre><code>services:
+  cosmo-nps-node:
+    image: darkver8/cosmo-nps-node:latest
     container_name: tunnel-agent-edge8
     restart: unless-stopped
     network_mode: host
     entrypoint: ["/usr/local/bin/tunnel-agent"]
     environment:
-      CONTROL_URL: http://192.168.6.64:8088     # 总控地址
-      NODE_ID: edge-8                           # 节点 ID（与后台一致）
-      NODE_TOKEN: paste-node-token-here         # 粘贴节点 Token
-      AGENT_API_ADDR: ":18089"                  # Agent API 端口
+      CONTROL_URL: http://总控IP:8088
+      NODE_ID: edge-8
+      NODE_TOKEN: paste-node-token-here
+      AGENT_API_ADDR: ":18089"
       NPS_BRIDGE_PORT: 18024
       NPS_TLS_BRIDGE_PORT: 18025
       NPS_HTTP_PORT: 9080
       NPS_HTTPS_PORT: 9443
     volumes:
       - ./data:/app/data</code></pre>
-</div>
 
-<div class="step">
-  <div class="step-num green">3</div>
-  <h3>启动节点</h3>
-  <pre><code>docker compose up -d</code></pre>
-  <p>查看日志确认连接成功：</p>
-  <pre><code>docker compose logs -f tunnel-agent</code></pre>
-  <p>看到 <code>synced node=edge-8 users=X tunnels=X</code> 即表示节点已成功同步配置。</p>
-</div>
+      <table>
+        <thead><tr><th>端口</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>18089/tcp</code></td><td>节点配置接口，建议只允许总控访问</td></tr>
+          <tr><td><code>18024/tcp</code></td><td>NPS bridge</td></tr>
+          <tr><td><code>18025/tcp</code></td><td>NPS TLS bridge</td></tr>
+          <tr><td><code>9080/tcp</code></td><td>NPS HTTP proxy</td></tr>
+          <tr><td><code>9443/tcp</code></td><td>NPS HTTPS proxy</td></tr>
+          <tr><td><code>10000-20000/tcp/udp</code></td><td>用户隧道端口池，按你的节点配置调整</td></tr>
+        </tbody>
+      </table>
+    </section>
 
-<div class="success">
-  <strong>✅ 验证：</strong>回到总控后台 <strong>「🖥️ 节点」</strong> 页面，该节点状态应显示为 <span class="badge badge-green">在线</span>。
-</div>
+    <section>
+      <h2>三、客户端部署</h2>
+      <p>用户客户端只需要填写总控地址、用户名和后台密码。</p>
 
-<!-- ==================== 第四部分：客户端 ==================== -->
-<div class="divider"></div>
-<h2 id="part4"><span class="icon">💻</span> 第四部分：客户端部署与使用</h2>
-
-<p>用户只需要运行客户端，填写总控地址和账号密码，不需要知道具体连接哪个节点——系统会自动处理。</p>
-
-<h3 id="p4-quick">🚀 一键脚本部署（Linux 服务器推荐）</h3>
-<p>如果客户端需要部署在 Linux 服务器上（Docker 方式），可以使用一键脚本，自动完成 Docker 安装和客户端部署。</p>
-
-<div class="card">
-<svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-  <rect width="800" height="200" rx="12" fill="#1e293b"/>
-  <text x="30" y="30" fill="#10b981" font-size="13" font-family="monospace" font-weight="bold">[STEP]  tunnel-all 客户端快速部署</text>
-  <text x="30" y="52" fill="#10b981" font-size="12" font-family="monospace">[INFO]  检测到系统: centos 7</text>
-  <text x="30" y="74" fill="#10b981" font-size="12" font-family="monospace">[INFO]  Docker 已安装</text>
-  <text x="30" y="96" fill="#06b6d4" font-size="12" font-family="monospace">[STEP]  部署 tunnel-client 客户端</text>
-  <text x="30" y="118" fill="#94a3b8" font-size="12" font-family="monospace">========== 客户端配置 ==========</text>
-  <text x="30" y="140" fill="#e2e8f0" font-size="12" font-family="monospace">总控地址 [http://192.168.6.64:8088]: <tspan fill="#f59e0b">http://1.2.3.4:8088</tspan></text>
-  <text x="30" y="162" fill="#e2e8f0" font-size="12" font-family="monospace">客户端用户名: <tspan fill="#f59e0b">alice</tspan></text>
-  <text x="30" y="184" fill="#e2e8f0" font-size="12" font-family="monospace">客户端密码: <tspan fill="#f59e0b">••••••••</tspan></text>
-</svg>
-<p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">客户端一键脚本交互式配置界面</p>
-</div>
-
-<div class="step">
-  <div class="step-num orange">1</div>
-  <h3>在客户端服务器上执行一键部署命令</h3>
-  <pre><code>git clone https://github.com/qwernot/tunnel-all.git
-cd tunnel-all
-bash deploy/client-quick-deploy.sh</code></pre>
-  <p>脚本会交互式询问：</p>
-  <table>
-    <tr><th>提示</th><th>说明</th></tr>
-    <tr><td>总控地址</td><td>总控服务器的完整 URL，如 <code>http://1.2.3.4:8088</code></td></tr>
-    <tr><td>客户端用户名</td><td>管理员在后台为你创建的账号</td></tr>
-    <tr><td>客户端密码</td><td>对应密码</td></tr>
-  </table>
-</div>
-
-<div class="step">
-  <div class="step-num orange">2</div>
-  <h3>等待自动完成</h3>
-  <p>脚本自动安装 Docker、拉取镜像、启动客户端容器。成功后输出：</p>
-  <pre><code>==========================================
-  ✓ 客户端部署成功！
-==========================================
-
-  总控地址:   http://1.2.3.4:8088
-  客户端账号: alice
-
-  常用命令:
-    查看状态: docker compose ps
-    查看日志: docker compose logs -f tunnel-client
-    重启服务: docker compose restart tunnel-client
-    停止服务: docker compose down
-==========================================</code></pre>
-  <div class="success">
-    <strong>✅ 客户端已连接！</strong>客户端会自动登录总控、获取隧道配置并连接对应节点。
-  </div>
-</div>
-
-<p style="margin-top:24px;font-weight:600;font-size:1.1em;">以下为桌面端/本地部署方式：</p>
-
-<h3 id="p4-windows">Windows GUI 客户端（推荐）</h3>
-
-<div class="card">
-  <svg viewBox="0 0 700 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">
-    <rect width="700" height="200" rx="12" fill="#f1f5f9"/>
-    <!-- 系统托盘 -->
-    <rect x="20" y="20" width="200" height="160" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="120" y="45" text-anchor="middle" fill="#1e293b" font-weight="bold" font-size="13">系统托盘</text>
-    <rect x="50" y="60" width="140" height="36" rx="8" fill="#f0fdf4" stroke="#86efac"/>
-    <circle cx="70" cy="78" r="6" fill="#10b981"/>
-    <text x="85" y="83" fill="#1e293b" font-size="12">Tunnel Client</text>
-    <text x="120" y="115" text-anchor="middle" fill="#64748b" font-size="11">右键菜单：</text>
-    <text x="120" y="135" text-anchor="middle" fill="#64748b" font-size="11">📊 打开面板</text>
-    <text x="120" y="152" text-anchor="middle" fill="#64748b" font-size="11">🔄 开机自启</text>
-    <text x="120" y="169" text-anchor="middle" fill="#64748b" font-size="11">❌ 退出</text>
-    <!-- Web Dashboard -->
-    <rect x="250" y="20" width="430" height="160" rx="10" fill="white" stroke="#e2e8f0"/>
-    <text x="465" y="45" text-anchor="middle" fill="#1e293b" font-weight="bold" font-size="13">Web Dashboard (127.0.0.1:18090)</text>
-    <circle cx="290" cy="80" r="10" fill="#10b981"/>
-    <text x="310" y="85" fill="#1e293b" font-size="12" font-weight="600">已连接</text>
-    <text x="310" y="105" fill="#64748b" font-size="11">总控: http://192.168.6.64:8088</text>
-    <text x="310" y="122" fill="#64748b" font-size="11">用户: alice | 隧道: 2 条在线</text>
-    <rect x="280" y="140" width="370" height="30" rx="6" fill="#1e293b"/>
-    <text x="295" y="160" fill="#10b981" font-size="11" font-family="monospace">[INFO] NPS client started for node=edge-8</text>
-  </svg>
-  <p style="text-align:center;margin-top:12px;color:var(--muted);font-size:0.9em;">Windows 客户端运行效果示意图</p>
-</div>
-
-<div class="step">
-  <div class="step-num orange">1</div>
-  <h3>构建/下载客户端</h3>
-  <pre><code># Windows 构建（含高清图标，无 CMD 黑框）
-go build -ldflags="-H windowsgui -s -w" -o tunnel-client.exe ./cmd/tunnel-client</code></pre>
-</div>
-
-<div class="step">
-  <div class="step-num orange">2</div>
-  <h3>启动客户端</h3>
-  <p>直接双击 <code>tunnel-client.exe</code>，<strong>不会弹出任何黑框窗口</strong>，直接缩入系统托盘。</p>
-  <p>浏览器会自动打开 <code>http://127.0.0.1:18090</code> 管理面板。</p>
-</div>
-
-<div class="step">
-  <div class="step-num orange">3</div>
-  <h3>配置连接</h3>
-  <p>在 Web 面板中填入：</p>
-  <table>
-    <tr><td><strong>总控地址</strong></td><td><code>http://你的总控IP:8088</code></td></tr>
-    <tr><td><strong>用户名</strong></td><td>管理员为你创建的账号</td></tr>
-    <tr><td><strong>密码</strong></td><td>对应密码</td></tr>
-  </table>
-  <p>点击连接后，客户端会自动登录总控、获取隧道配置、连接对应节点。</p>
-</div>
-
-<div class="step">
-  <div class="step-num orange">4</div>
-  <h3>高级功能</h3>
-  <table>
-    <tr><th>功能</th><th>说明</th></tr>
-    <tr><td>开机自启</td><td>托盘右键 → 开启「开机自启动」</td></tr>
-    <tr><td>安装为系统服务</td><td><code>tunnel-client.exe -service-install</code></td></tr>
-    <tr><td>卸载系统服务</td><td><code>tunnel-client.exe -service-uninstall</code></td></tr>
-    <tr><td>静默启动</td><td><code>tunnel-client.exe -silent</code>（不打开浏览器）</td></tr>
-  </table>
-</div>
-
-<h3 id="p4-linux">Linux 守护进程</h3>
-<div class="step">
-  <div class="step-num orange">1</div>
-  <h3>构建</h3>
-  <pre><code># Linux 交叉编译（无需 C 编译器）
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o tunnel-client-linux ./cmd/tunnel-client</code></pre>
-</div>
-
-<div class="step">
-  <div class="step-num orange">2</div>
-  <h3>运行</h3>
-  <pre><code># 带 Web GUI 启动（自动打开浏览器）
-./tunnel-client-linux
-
-# 命令行直接启动（无 GUI）
-./tunnel-client-linux -server http://192.168.6.64:8088 -user alice -password alice123</code></pre>
-</div>
-
-<h3 id="p4-cmd">命令行静默模式（通用）</h3>
-<div class="step">
-  <div class="step-num orange">1</div>
-  <h3>直接传参启动</h3>
-  <pre><code>tunnel-client -server http://192.168.6.64:8088 -user alice -password alice123</code></pre>
-  <p>不传 <code>-user</code> <code>-password</code> 时自动进入本地 Web 面板模式。</p>
-</div>
-
-<h3 id="p4-docker">Docker 客户端部署</h3>
-<div class="step">
-  <div class="step-num orange">1</div>
-  <h3>编写 docker-compose.yml</h3>
-  <pre><code>services:
-  tunnel-client:
-    image: darkver8/tunnel-client:latest
+      <h3>Docker 客户端</h3>
+      <pre><code>services:
+  cosmo-nps-client:
+    image: darkver8/cosmo-nps-client:latest
     container_name: tunnel-client
     restart: unless-stopped
     network_mode: host
     entrypoint: ["/usr/local/bin/tunnel-client"]
     environment:
-      CONTROL_URL: http://192.168.6.64:8088
-      TUNNEL_USER: alice
-      TUNNEL_PASSWORD: alice123</code></pre>
-</div>
+      CONTROL_URL: http://总控IP:8088
+      TUNNEL_USER: dark
+      TUNNEL_PASSWORD: change-this-password</code></pre>
 
-<div class="step">
-  <div class="step-num orange">2</div>
-  <h3>启动</h3>
-  <pre><code>docker compose up -d
-docker compose logs -f tunnel-client</code></pre>
-  <p>看到 <code>logged in to ... as alice</code> 和 <code>starting NPS client for node=edge-8</code> 即表示连接成功。</p>
-</div>
+      <h3>Windows 客户端</h3>
+      <pre><code>dotnet build ./cmd/tunnel-client-gui/TunnelClientGui.csproj -c Release
+go build -ldflags="-H windowsgui -s -w" -o tunnel-client.exe ./cmd/tunnel-client</code></pre>
 
-<!-- ==================== 第五部分 ==================== -->
-<div class="divider"></div>
-<h2 id="part5"><span class="icon">🔓</span> 第五部分：端口放行清单</h2>
+      <h3>命令行客户端</h3>
+      <pre><code>tunnel-client -server http://总控IP:8088 -user dark -password change-this-password</code></pre>
+    </section>
 
-<div class="card">
-<h3>总控服务器</h3>
-<table>
-  <tr><th>端口</th><th>协议</th><th>用途</th></tr>
-  <tr><td><span class="port-tag">8088</span></td><td>TCP</td><td>Web 后台管理</td></tr>
-</table>
-
-<h3>节点服务器</h3>
-<table>
-  <tr><th>端口</th><th>协议</th><th>用途</th></tr>
-  <tr><td><span class="port-tag">18089</span></td><td>TCP</td><td>节点配置 API（建议仅允许总控访问）</td></tr>
-  <tr><td><span class="port-tag">18024</span></td><td>TCP</td><td>NPS Bridge（客户端连接）</td></tr>
-  <tr><td><span class="port-tag">18025</span></td><td>TCP</td><td>NPS TLS Bridge</td></tr>
-  <tr><td><span class="port-tag">9080</span></td><td>TCP</td><td>NPS HTTP Proxy</td></tr>
-  <tr><td><span class="port-tag">9443</span></td><td>TCP</td><td>NPS HTTPS Proxy</td></tr>
-  <tr><td><span class="port-tag">10000-20000</span></td><td>TCP+UDP</td><td>用户隧道端口</td></tr>
-</table>
-
-<h3>客户端机器</h3>
-<table>
-  <tr><th>端口</th><th>协议</th><th>用途</th></tr>
-  <tr><td><span class="port-tag">18090</span></td><td>TCP</td><td>本地 Web Dashboard（仅 127.0.0.1）</td></tr>
-</table>
-</div>
-
-<!-- ==================== 附录 ==================== -->
-<div class="divider"></div>
-<h2 id="part6"><span class="icon">📋</span> 附录：常用命令</h2>
-
-<div class="card">
-<h3>总控升级</h3>
-<pre><code># 使用升级脚本（自动备份数据 + 拉取新镜像 + 重启 + 健康检查）
-cd deploy/docker
-bash upgrade.sh
-
-# 或手动升级
-docker pull darkver8/tunnel-all:latest
-docker compose up -d</code></pre>
-
-<h3>总控管理</h3>
-<pre><code># 启动
-docker compose up -d
-
-# 查看日志
+    <section>
+      <h2>四、常用命令</h2>
+      <h3>总控</h3>
+      <pre><code>docker compose ps
 docker compose logs -f tunnel-stack
-
-# 重启
 docker compose restart tunnel-stack
+docker compose down</code></pre>
 
-# 停止
-docker compose down
-
-# 健康检查
-curl http://127.0.0.1:8088/healthz</code></pre>
-
-<h3>节点管理</h3>
-<pre><code>docker compose up -d
+      <h3>节点</h3>
+      <pre><code>docker compose ps
 docker compose logs -f tunnel-agent
 docker compose restart tunnel-agent
 docker compose down</code></pre>
 
-<h3>客户端管理</h3>
-<pre><code># Docker 方式
-docker compose up -d
+      <h3>客户端</h3>
+      <pre><code>docker compose ps
 docker compose logs -f tunnel-client
+docker compose restart tunnel-client
+docker compose down</code></pre>
 
-# Windows 服务方式
-tunnel-client.exe -service-install
-tunnel-client.exe -service-uninstall
+      <h3>健康检查</h3>
+      <pre><code>curl http://127.0.0.1:8088/healthz</code></pre>
+    </section>
 
-# 命令行方式
-tunnel-client -server http://总控IP:8088 -user 用户名 -password 密码</code></pre>
+    <section>
+      <h2>五、本地构建与推送</h2>
+      <p>项目使用 Dockerfile 多 target 构建三个独立镜像。</p>
+      <pre><code>go test ./...
 
-<h3>完整使用流程总结</h3>
-<div class="flow-box">
-  <div class="flow-item" style="border-top: 3px solid var(--blue);">
-    <div class="emoji">1️⃣</div>
-    <div class="label">部署总控</div>
-    <div class="desc">Docker 一键启动<br>开放 8088 端口</div>
-  </div>
-  <div class="flow-item" style="border-top: 3px solid var(--blue);">
-    <div class="emoji">2️⃣</div>
-    <div class="label">创建用户</div>
-    <div class="desc">分配端口池<br>分配域名池</div>
-  </div>
-  <div class="flow-item" style="border-top: 3px solid var(--green);">
-    <div class="emoji">3️⃣</div>
-    <div class="label">创建节点</div>
-    <div class="desc">复制 Token<br>部署节点服务</div>
-  </div>
-  <div class="flow-item" style="border-top: 3px solid var(--green);">
-    <div class="emoji">4️⃣</div>
-    <div class="label">创建隧道</div>
-    <div class="desc">选择用户和节点<br>配置端口/域名</div>
-  </div>
-  <div class="flow-item" style="border-top: 3px solid var(--orange);">
-    <div class="emoji">5️⃣</div>
-    <div class="label">启动客户端</div>
-    <div class="desc">自动连接节点<br>隧道即刻生效</div>
-  </div>
-</div>
-</div>
+docker build --target control -t darkver8/cosmo-nps:latest .
+docker build --target node -t darkver8/cosmo-nps-node:latest .
+docker build --target client -t darkver8/cosmo-nps-client:latest .
 
-<div style="text-align:center;margin:48px 0 24px;color:var(--muted);font-size:0.85em;">
-  Tunnel Control · NPS 多节点统一管理系统 · 部署与使用教程
-</div>
+docker push darkver8/cosmo-nps:latest
+docker push darkver8/cosmo-nps-node:latest
+docker push darkver8/cosmo-nps-client:latest</code></pre>
 
-</div>
+      <p>也可以直接使用脚本：</p>
+      <pre><code>bash build-and-push.sh</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>自动部署脚本状态</h2>
+      <table>
+        <thead><tr><th>脚本</th><th>默认镜像</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td><code>deploy/quick-deploy.sh</code></td><td><code>darkver8/cosmo-nps:latest</code></td><td>已更新</td></tr>
+          <tr><td>后台节点一键脚本</td><td><code>darkver8/cosmo-nps-node:latest</code></td><td>已更新</td></tr>
+          <tr><td><code>deploy/client-quick-deploy.sh</code></td><td><code>darkver8/cosmo-nps-client:latest</code></td><td>已更新</td></tr>
+          <tr><td><code>build-and-push.sh</code></td><td>三 target 独立构建</td><td>已更新</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
 </body>
 </html>
