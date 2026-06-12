@@ -404,7 +404,6 @@ function renderTunnels() {
       <td title="${escapeHtml(tunnelEntry(t))}">${escapeHtml(tunnelEntry(t))}</td>
       <td>${escapeHtml(`${t.localIp || "-"}:${t.localPort || "-"}`)}</td>
       <td>${tunnelAvailabilityBadge(t)}</td>
-      <td>${tunnelTrafficSummary(t)}</td>
       <td>${statusBadge(t.enabled)}</td>
       <td>
         <div class="cell-actions">
@@ -413,7 +412,7 @@ function renderTunnels() {
         </div>
       </td>
     </tr>
-  `).join("") || emptyRow(11);
+  `).join("") || emptyRow(10);
 }
 
 function renderLogs() {
@@ -976,40 +975,6 @@ function userTrafficSummary(u) {
       </div>
     `;
   }
-}
-
-function tunnelTrafficSummary(t) {
-  const availability = availabilityForTunnel(t.id);
-  if (!availability) {
-    return `
-      <div class="tunnel-traffic">
-        <span class="traffic-total">0 B</span>
-        <span class="traffic-speed speed-silent">静默</span>
-      </div>
-    `;
-  }
-  
-  const totalFlow = (availability.inletFlow || 0) + (availability.exportFlow || 0);
-  const totalFlowText = formatBytes(totalFlow);
-  
-  const upSpeed = formatSpeed(availability.inletSpeed || 0);
-  const downSpeed = formatSpeed(availability.exportSpeed || 0);
-  
-  let speedText = "静默";
-  if (availability.inletSpeed > 0 || availability.exportSpeed > 0) {
-    const upStr = availability.inletSpeed > 0 ? `↑${upSpeed}` : "";
-    const downStr = availability.exportSpeed > 0 ? `↓${downSpeed}` : "";
-    speedText = [upStr, downStr].filter(Boolean).join(" ");
-  }
-  
-  const speedClass = speedText === "静默" ? "speed-silent" : "speed-active";
-  
-  return `
-    <div class="tunnel-traffic">
-      <span class="traffic-total">${totalFlowText}</span>
-      <span class="traffic-speed ${speedClass}">${speedText}</span>
-    </div>
-  `;
 }
 
 boot();

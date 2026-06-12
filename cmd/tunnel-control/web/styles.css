@@ -998,31 +998,3 @@ pre {
   border-radius: 3px;
   transition: none;
 }
-
-.tunnel-traffic {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-family: Consolas, monospace;
-  font-size: 12px;
-}
-
-.tunnel-traffic .traffic-total {
-  color: var(--text);
-  font-weight: 500;
-}
-
-.tunnel-traffic .traffic-speed {
-  font-size: 11px;
-}
-
-.tunnel-traffic .traffic-speed.speed-active {
-  color: #34d399; /* emerald green/teal */
-  text-shadow: none;
-  font-weight: bold;
-}
-
-.tunnel-traffic .traffic-speed.speed-silent {
-  color: var(--muted);
-  font-style: italic;
-}
