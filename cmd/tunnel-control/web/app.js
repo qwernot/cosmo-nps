@@ -787,7 +787,7 @@ async function copyConfig() {
 }
 
 async function copyText(text) {
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+  if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
     await navigator.clipboard.writeText(text);
     return;
   }
