@@ -107,7 +107,7 @@ EOF
 install_docker_on_centos() {
     step "安装 Docker (CentOS)"
     yum install -y yum-utils
-    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    yum-config-manager --add-repo https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
     yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
@@ -117,12 +117,12 @@ install_docker_on_ubuntu_debian() {
     apt-get install -y ca-certificates curl gnupg
 
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/$OS/gpg -o /etc/apt/keyrings/docker.asc
+    curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/$OS/gpg -o /etc/apt/keyrings/docker.asc
     chmod a+r /etc/apt/keyrings/docker.asc
 
     echo \
       "deb [arch=\$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-      https://download.docker.com/linux/$OS \
+      https://mirrors.aliyun.com/docker-ce/linux/$OS \
       \$(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
       tee /etc/apt/sources.list.d/docker.list > /dev/null
 
