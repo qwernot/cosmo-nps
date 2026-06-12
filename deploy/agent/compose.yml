@@ -1,6 +1,6 @@
 services:
   tunnel-agent:
-    image: darkver8/tunnel-port:latest
+    image: darkver8/cosmo-nps-node:latest
     container_name: tunnel-agent
     restart: unless-stopped
     network_mode: host

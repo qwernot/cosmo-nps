@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# tunnel-all total-control quick deploy script.
+# Cosmo NPS total-control quick deploy script.
 # Supports CentOS/RHEL/Rocky/Alma, Ubuntu/Debian/Mint/Pop.
 
 RED='\033[0;31m'
@@ -15,7 +15,7 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; }
 step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 
-IMAGE="${IMAGE:-darkver8/tunnel-all:latest}"
+IMAGE="${IMAGE:-darkver8/cosmo-nps:latest}"
 SERVICE="${SERVICE:-tunnel-stack}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8088/healthz}"
 DEFAULT_ADMIN_USER="${DEFAULT_ADMIN_USER:-admin}"
@@ -188,7 +188,7 @@ prompt_if_needed() {
     fi
 
     echo ""
-    echo "========== tunnel-all total-control config =========="
+    echo "========== Cosmo NPS total-control config =========="
     read -rp "Public IP/domain [blank=auto]: " PUBLIC_ADDR_INPUT
     read -rp "Admin username [$DEFAULT_ADMIN_USER]: " ADMIN_USER_INPUT
     read -rp "Admin password [$DEFAULT_ADMIN_PASSWORD]: " ADMIN_PASSWORD_INPUT
@@ -251,7 +251,7 @@ find_compose_dir() {
 }
 
 deploy_control() {
-    step "Deploying tunnel-all total-control"
+    step "Deploying Cosmo NPS total-control"
     local compose_dir
     compose_dir="$(find_compose_dir)"
     prompt_if_needed
@@ -300,7 +300,7 @@ deploy_control() {
 }
 
 main() {
-    step "tunnel-all total-control quick deploy"
+    step "Cosmo NPS total-control quick deploy"
     check_root
     detect_os
     install_docker

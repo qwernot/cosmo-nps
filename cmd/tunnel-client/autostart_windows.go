@@ -11,7 +11,8 @@ import (
 )
 
 const registryKey = `Software\Microsoft\Windows\CurrentVersion\Run`
-const appRegistryName = "TunnelClient"
+const appRegistryName = "CosmoNPSClient"
+const legacyAppRegistryName = "TunnelClient"
 
 var (
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
@@ -54,10 +55,16 @@ func setAutoStart(enabled bool) error {
 			exePath = exe
 		}
 		// Pass -silent flag on boot startup so it doesn't open browser
-		return k.SetStringValue(appRegistryName, `"`+exePath+`" -silent`)
-	} else {
-		return k.DeleteValue(appRegistryName)
+		if err := k.SetStringValue(appRegistryName, `"`+exePath+`" -silent`); err != nil {
+			return err
+		}
+		_ = deleteRegistryValue(k, legacyAppRegistryName)
+		return nil
 	}
+	if err := deleteRegistryValue(k, appRegistryName); err != nil {
+		return err
+	}
+	return deleteRegistryValue(k, legacyAppRegistryName)
 }
 
 func isAutoStartEnabled() bool {
@@ -67,8 +74,18 @@ func isAutoStartEnabled() bool {
 	}
 	defer k.Close()
 
-	_, _, err = k.GetStringValue(appRegistryName)
-	return err == nil
+	for _, name := range []string{appRegistryName, legacyAppRegistryName} {
+		if _, _, err = k.GetStringValue(name); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
-
+func deleteRegistryValue(k registry.Key, name string) error {
+	err := k.DeleteValue(name)
+	if err == nil || err == registry.ErrNotExist {
+		return nil
+	}
+	return err
+}

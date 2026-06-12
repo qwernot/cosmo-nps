@@ -1,56 +1,56 @@
 #!/bin/bash
-# tunnel-all 镜像构建并推送脚本
-# 用法: bash build-and-push.sh [版本号]
-# 示例: bash build-and-push.sh        # 推送 latest
-#       bash build-and-push.sh v1.2.0 # 推送 v1.2.0 + latest
+set -euo pipefail
 
-set -e
-
-IMAGE="darkver8/tunnel-all"
 VERSION="${1:-latest}"
+BASE_IMAGE="darkver8/cosmo-nps"
+NODE_IMAGE="darkver8/cosmo-nps-node"
+CLIENT_IMAGE="darkver8/cosmo-nps-client"
 
 echo "========================================="
-echo "  tunnel-all 镜像构建 & 推送"
+echo "  Cosmo NPS image build & push"
+echo "  Version: ${VERSION}"
 echo "========================================="
 echo ""
 
-# 检查是否在项目根目录
 if [[ ! -f "Dockerfile" ]]; then
-    echo "[ERROR] 未找到 Dockerfile，请在项目根目录运行此脚本"
+    echo "[ERROR] Dockerfile not found. Run this script from the project root."
     exit 1
 fi
 
-# 检查 Docker
-if ! command -v docker &>/dev/null; then
-    echo "[ERROR] Docker 未安装"
+if ! command -v docker >/dev/null 2>&1; then
+    echo "[ERROR] Docker is not installed."
     exit 1
 fi
 
-# 先拉取最新代码
-echo "[1/4] 拉取最新代码..."
-git pull --ff-only 2>/dev/null || true
+echo "[1/4] Building ${BASE_IMAGE}:${VERSION} ..."
+docker build -t "${BASE_IMAGE}:${VERSION}" .
 
-# 构建镜像
-echo "[2/4] 构建镜像 ${IMAGE}:${VERSION} ..."
-docker build -t "${IMAGE}:${VERSION}" .
+echo "[2/4] Tagging role images ..."
+docker tag "${BASE_IMAGE}:${VERSION}" "${NODE_IMAGE}:${VERSION}"
+docker tag "${BASE_IMAGE}:${VERSION}" "${CLIENT_IMAGE}:${VERSION}"
 
-# 如果有版本号，额外打 latest 标签
 if [[ "$VERSION" != "latest" ]]; then
-    echo "[3/4] 打 latest 标签..."
-    docker tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"
+    docker tag "${BASE_IMAGE}:${VERSION}" "${BASE_IMAGE}:latest"
+    docker tag "${BASE_IMAGE}:${VERSION}" "${NODE_IMAGE}:latest"
+    docker tag "${BASE_IMAGE}:${VERSION}" "${CLIENT_IMAGE}:latest"
+fi
+
+echo "[3/4] Pushing ${VERSION} tags ..."
+docker push "${BASE_IMAGE}:${VERSION}"
+docker push "${NODE_IMAGE}:${VERSION}"
+docker push "${CLIENT_IMAGE}:${VERSION}"
+
+if [[ "$VERSION" != "latest" ]]; then
+    echo "[4/4] Pushing latest tags ..."
+    docker push "${BASE_IMAGE}:latest"
+    docker push "${NODE_IMAGE}:latest"
+    docker push "${CLIENT_IMAGE}:latest"
 else
-    echo "[3/4] 跳过标签（已是 latest）"
-fi
-
-# 推送
-echo "[4/4] 推送到 Docker Hub..."
-docker push "${IMAGE}:${VERSION}"
-if [[ "$VERSION" != "latest" ]]; then
-    docker push "${IMAGE}:latest"
+    echo "[4/4] latest tags already pushed."
 fi
 
 echo ""
-echo "========================================="
-echo "  构建推送完成！"
-echo "  ${IMAGE}:${VERSION}"
-echo "========================================="
+echo "Done:"
+echo "  ${BASE_IMAGE}:${VERSION}"
+echo "  ${NODE_IMAGE}:${VERSION}"
+echo "  ${CLIENT_IMAGE}:${VERSION}"

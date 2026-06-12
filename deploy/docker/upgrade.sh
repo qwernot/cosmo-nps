@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-IMAGE="${IMAGE:-darkver8/tunnel-all:latest}"
+IMAGE="${IMAGE:-darkver8/cosmo-nps:latest}"
 SERVICE="${SERVICE:-tunnel-stack}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8088/healthz}"
 COMPOSE="${COMPOSE:-docker compose}"

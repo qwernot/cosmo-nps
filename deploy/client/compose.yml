@@ -1,6 +1,6 @@
 services:
   tunnel-client:
-    image: darkver8/tunnel-client:latest
+    image: darkver8/cosmo-nps-client:latest
     container_name: tunnel-client
     restart: unless-stopped
     network_mode: host

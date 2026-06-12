@@ -1633,7 +1633,7 @@ func (a *apiServer) exportConfigs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	readme := filepath.Join(a.configOut, "README.txt")
-	text := "Tunnel Control export\n\nnps-clients.json: managed NPS client list.\nclients/<user>/npc-command.txt: npc startup command for that user.\n"
+	text := "Cosmo NPS export\n\nnps-clients.json: managed NPS client list.\nclients/<user>/npc-command.txt: npc startup command for that user.\n"
 	if err := os.WriteFile(readme, []byte(text), 0o600); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -1729,11 +1729,15 @@ func requestBaseURL(r *http.Request) string {
 }
 
 func renderTunnelClientHelp(userName, controlURL string) string {
+	return renderCosmoClientHelp(userName, controlURL)
+}
+
+func renderTunnelClientHelpLegacy(userName, controlURL string) string {
 	return fmt.Sprintf(`docker compose:
 
 services:
   tunnel-client:
-    image: darkver8/tunnel-client:latest
+    image: darkver8/cosmo-nps-client:latest
     container_name: tunnel-client
     restart: unless-stopped
     network_mode: host
@@ -1749,6 +1753,30 @@ tunnel-client -server %s -user %s -password 填写该用户的后台登录密码
 
 说明:
 用户只需要连接总控。tunnel-client 会自动从总控读取该用户的节点和 NPS 隧道，并自动连接对应节点。
+`, controlURL, userName, controlURL, userName)
+}
+
+func renderCosmoClientHelp(userName, controlURL string) string {
+	return fmt.Sprintf(`docker compose:
+
+services:
+  cosmo-nps-client:
+    image: darkver8/cosmo-nps-client:latest
+    container_name: tunnel-client
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["/usr/local/bin/tunnel-client"]
+    environment:
+      CONTROL_URL: %s
+      TUNNEL_USER: %s
+      TUNNEL_PASSWORD: 填写该用户的后台登录密码
+
+直接运行:
+
+tunnel-client -server %s -user %s -password 填写该用户的后台登录密码
+
+说明:
+用户只需要连接总控。Cosmo NPS Client 会自动从总控读取该用户的节点和 NPS 隧道，并自动连接对应节点。
 `, controlURL, userName, controlURL, userName)
 }
 
@@ -1844,8 +1872,8 @@ if command -v docker &>/dev/null; then
   
   # 拉取镜像
   echo "[+] 拉取最新镜像..."
-  if ! docker pull darkver8/tunnel-all:latest; then
-    echo "[-] 镜像拉取失败，请检查网络或手动执行: docker pull darkver8/tunnel-all:latest"
+  if ! docker pull darkver8/cosmo-nps-node:latest; then
+    echo "[-] 镜像拉取失败，请检查网络或手动执行: docker pull darkver8/cosmo-nps-node:latest"
     exit 1
   fi
 
@@ -1872,7 +1900,7 @@ if command -v docker &>/dev/null; then
     -e NPS_TLS_BRIDGE_PORT="$NPS_TLS_BRIDGE_PORT" \
     -e NPS_HTTP_PORT="$NPS_HTTP_PORT" \
     -e NPS_HTTPS_PORT="$NPS_HTTPS_PORT" \
-    darkver8/tunnel-all:latest
+    darkver8/cosmo-nps-node:latest
 
   # 检查容器是否成功启动
   sleep 2

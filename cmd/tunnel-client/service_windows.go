@@ -16,7 +16,7 @@ import (
 )
 
 const serviceName = "TunnelClient"
-const serviceDesc = "NPS Multi-Node Tunnel Client Service"
+const serviceDesc = "Cosmo NPS Windows Client Service"
 
 type tunnelService struct{}
 
@@ -93,7 +93,7 @@ func runAsService() bool {
 				fmt.Printf("Failed to install service: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("Service %s installed successfully.\n", serviceName)
+			fmt.Printf("Cosmo NPS service %s installed successfully.\n", serviceName)
 			os.Exit(0)
 		}
 		if arg == "-service-uninstall" {
@@ -102,7 +102,7 @@ func runAsService() bool {
 				fmt.Printf("Failed to uninstall service: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("Service %s uninstalled successfully.\n", serviceName)
+			fmt.Printf("Cosmo NPS service %s uninstalled successfully.\n", serviceName)
 			os.Exit(0)
 		}
 	}
@@ -126,7 +126,7 @@ func installService(name, desc string) error {
 		return fmt.Errorf("service %s already exists", name)
 	}
 	s, err = m.CreateService(name, exepath, mgr.Config{
-		DisplayName: "Tunnel Client Service",
+		DisplayName: "Cosmo NPS Client Service",
 		Description: desc,
 		StartType:   mgr.StartAutomatic,
 	})

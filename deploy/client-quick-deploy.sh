@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # =============================================================================
-# tunnel-all 客户端快速部署脚本
-# 用途: 一键安装 Docker（如需要）并部署 tunnel-client 客户端
+# Cosmo NPS 客户端快速部署脚本
+# 用途: 一键安装 Docker（如需要）并部署 Cosmo NPS Client
 # 环境: CentOS 7+/Ubuntu 20.04+/Debian 11+
 # =============================================================================
 
@@ -241,7 +241,7 @@ EOF
 
     # 拉取镜像
     info "拉取最新镜像..."
-    docker pull darkver8/tunnel-client:latest
+    docker pull darkver8/cosmo-nps-client:latest
 
     # 启动
     info "启动客户端..."
@@ -278,7 +278,7 @@ EOF
 # ========== 主流程 ==========
 
 main() {
-    step "tunnel-all 客户端快速部署"
+    step "Cosmo NPS 客户端快速部署"
     echo ""
 
     check_root

@@ -775,7 +775,7 @@ async function loadConfig(kind) {
   const path = paths[kind] || "npc-command";
   const node = $("#config-node")?.value || "local";
   const text = await api(`/api/users/${encodeURIComponent(user)}/${path}?node=${encodeURIComponent(node)}`, { headers: {} });
-  $("#config-title").textContent = kind === "npsKey" ? "NPS 密钥" : kind === "tunnelClient" ? "tunnel-client" : "npc";
+  $("#config-title").textContent = kind === "npsKey" ? "NPS 密钥" : kind === "tunnelClient" ? "Cosmo NPS Client" : "npc";
   $("#config-output").textContent = text;
 }
 

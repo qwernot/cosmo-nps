@@ -7,7 +7,7 @@ namespace TunnelClientGui
 {
     public partial class App : Application
     {
-        private const string MutexName = "TunnelClientGui_SingleInstance_Mutex";
+        private const string MutexName = "CosmoNPSClientGui_SingleInstance_Mutex";
         private static Mutex? _mutex;
 
         [DllImport("user32.dll")]
@@ -28,7 +28,7 @@ namespace TunnelClientGui
             if (!isNew)
             {
                 // Another GUI instance is already running — activate its window
-                var hwnd = FindWindow(null, "Tunnel Client");
+                var hwnd = FindWindow(null, "Cosmo NPS");
                 if (hwnd != IntPtr.Zero)
                 {
                     ShowWindow(hwnd, SW_RESTORE);

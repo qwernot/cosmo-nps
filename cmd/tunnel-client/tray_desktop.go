@@ -16,13 +16,13 @@ func startDesktopTray(addr string, silent bool) {
 }
 
 func onReady() {
-	systray.SetTooltip("Tunnel Client - NPS Multi-Node Tunnel")
+	systray.SetTooltip("Cosmo NPS - NPS Client")
 	systray.SetIcon(generateIconBytes())
 
-	mOpen := systray.AddMenuItem("打开主面板 (Open Dashboard)", "打开客户端网页管理主面板")
-	mAutoStart = systray.AddMenuItemCheckbox("开机自启动 (Boot Startup)", "设置开机自启动", isAutoStartEnabled())
+	mOpen := systray.AddMenuItem("Open Cosmo NPS", "Open the Cosmo NPS client dashboard")
+	mAutoStart = systray.AddMenuItemCheckbox("Start with Windows", "Run Cosmo NPS silently after Windows login", isAutoStartEnabled())
 	systray.AddSeparator()
-	mExit := systray.AddMenuItem("退出 (Exit)", "关闭并退出客户端")
+	mExit := systray.AddMenuItem("Exit", "Close Cosmo NPS")
 
 	go func() {
 		for {

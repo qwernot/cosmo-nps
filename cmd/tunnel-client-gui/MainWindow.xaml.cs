@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -88,6 +89,9 @@ namespace TunnelClientGui
         [JsonPropertyName("tunnels")]
         public List<Tunnel> Tunnels { get; set; } = new();
 
+        [JsonPropertyName("nodes")]
+        public List<string> Nodes { get; set; } = new();
+
         [JsonPropertyName("logs")]
         public List<string> Logs { get; set; } = new();
     }
@@ -121,6 +125,7 @@ namespace TunnelClientGui
             _hasLoadedConfig = false;
 
             DaemonAddressText.Text = _baseUrl;
+            VersionText.Text = $"v{GetAppVersion()}";
 
             // Start polling loop
             _ = PollStatusAsync();
@@ -173,6 +178,9 @@ namespace TunnelClientGui
                                 // Remove event handler temporarily to avoid feedback loop
                                 AutoStartToggle.Click -= AutoStartToggle_Click;
                                 AutoStartToggle.IsChecked = settings.AutoStart;
+                                AutoStartStatusText.Text = settings.AutoStart
+                                    ? "已开启，Windows 登录后会自动静默运行 Cosmo NPS"
+                                    : "未开启，可在 Windows 登录后自动静默运行 Cosmo NPS";
                                 AutoStartToggle.Click += AutoStartToggle_Click;
                             });
                         }
@@ -216,6 +224,7 @@ namespace TunnelClientGui
 
                 ConnectButton.IsEnabled = false;
                 ConnectButton.Content = "开始连接";
+                ReconnectButton.IsEnabled = true;
                 DisconnectButton.IsEnabled = true;
 
                 ControlUrlBox.IsEnabled = false;
@@ -234,6 +243,7 @@ namespace TunnelClientGui
 
                 ConnectButton.IsEnabled = true;
                 ConnectButton.Content = "开始连接";
+                ReconnectButton.IsEnabled = false;
                 DisconnectButton.IsEnabled = false;
 
                 ControlUrlBox.IsEnabled = true;
@@ -248,6 +258,7 @@ namespace TunnelClientGui
             // Render tunnels
             TunnelsListView.ItemsSource = status.Tunnels;
             TunnelCountText.Text = $"{status.Tunnels?.Count ?? 0} 个";
+            ActiveNodesText.Text = status.Nodes != null && status.Nodes.Count > 0 ? string.Join(", ", status.Nodes) : "未连接";
             ClientUserText.Text = string.IsNullOrEmpty(status.Config?.User) ? "未载入" : status.Config.User;
 
             // Handle logs with client-side clear filter
@@ -284,6 +295,7 @@ namespace TunnelClientGui
             StatusText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F43F5E"));
 
             ConnectButton.IsEnabled = false;
+            ReconnectButton.IsEnabled = false;
             DisconnectButton.IsEnabled = false;
 
             ControlUrlBox.IsEnabled = true;
@@ -293,6 +305,7 @@ namespace TunnelClientGui
 
             _startedTime = null;
             UptimeText.Text = "-- : -- : --";
+            ActiveNodesText.Text = "未连接";
             TunnelCountText.Text = "0 个";
             ClientUserText.Text = "未载入";
         }
@@ -402,6 +415,41 @@ namespace TunnelClientGui
             }
         }
 
+        private async void ReconnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            ReconnectButton.IsEnabled = false;
+            ReconnectButton.Content = "重连中...";
+
+            try
+            {
+                var response = await _httpClient.PostAsync($"{_baseUrl}/api/restart", null);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errJson = await response.Content.ReadAsStringAsync();
+                    string errMsg = "未知错误";
+                    try
+                    {
+                        var errObj = JsonSerializer.Deserialize<Dictionary<string, string>>(errJson);
+                        if (errObj != null && errObj.TryGetValue("error", out var msg))
+                        {
+                            errMsg = msg;
+                        }
+                    }
+                    catch { }
+                    MessageBox.Show($"重连失败: {errMsg}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"重连请求异常: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                ReconnectButton.Content = "重新连接";
+                ReconnectButton.IsEnabled = true;
+            }
+        }
+
         private async void DisconnectButton_Click(object sender, RoutedEventArgs e)
         {
             DisconnectButton.IsEnabled = false;
@@ -449,13 +497,30 @@ namespace TunnelClientGui
                 {
                     MessageBox.Show("保存自启动设置失败", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                     AutoStartToggle.IsChecked = !isChecked;
+                    AutoStartStatusText.Text = !isChecked
+                        ? "已开启，Windows 登录后会自动静默运行 Cosmo NPS"
+                        : "未开启，可在 Windows 登录后自动静默运行 Cosmo NPS";
+                }
+                else
+                {
+                    AutoStartStatusText.Text = isChecked
+                        ? "已开启，Windows 登录后会自动静默运行 Cosmo NPS"
+                        : "未开启，可在 Windows 登录后自动静默运行 Cosmo NPS";
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"保存自启动设置异常: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                 AutoStartToggle.IsChecked = !isChecked;
+                AutoStartStatusText.Text = !isChecked
+                    ? "已开启，Windows 登录后会自动静默运行 Cosmo NPS"
+                    : "未开启，可在 Windows 登录后自动静默运行 Cosmo NPS";
             }
+        }
+
+        private static string GetAppVersion()
+        {
+            return Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
         }
 
         private void ContactAuthorBtn_Click(object sender, RoutedEventArgs e)

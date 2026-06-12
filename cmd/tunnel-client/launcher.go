@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -162,6 +163,7 @@ func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) er
 	mux.HandleFunc("GET /api/status", globalState.status)
 	mux.HandleFunc("POST /api/start", globalState.start)
 	mux.HandleFunc("POST /api/stop", globalState.stop)
+	mux.HandleFunc("POST /api/restart", globalState.restart)
 	mux.HandleFunc("GET /api/settings", globalState.getSettings)
 	mux.HandleFunc("POST /api/settings", globalState.setSettings)
 	mux.HandleFunc("POST /api/show", globalState.show)
@@ -175,31 +177,10 @@ func runLauncher(addr, controlURL string, refresh time.Duration, silent bool) er
 
 	// Auto-connect on startup if config is complete
 	if cfg.ControlURL != "" && cfg.User != "" && cfg.Password != "" {
-		log.Printf("Saved config found. Auto-connecting in background...")
-		refreshDur, err := time.ParseDuration(cfg.Refresh)
-		if err != nil {
-			refreshDur = 30 * time.Second
+		log.Printf("Saved config found. Auto-connecting Cosmo NPS in background...")
+		if err := globalState.startClient(cfg, false); err != nil {
+			log.Printf("Auto-connect failed: %v", err)
 		}
-		globalState.mu.Lock()
-		ctx, cancel := context.WithCancel(context.Background())
-		globalState.cancel = cancel
-		globalState.running = true
-		globalState.started = time.Now()
-		globalState.mu.Unlock()
-
-		go func() {
-			err := runClientCtx(ctx, cfg.ControlURL, cfg.User, cfg.Password, refreshDur)
-			globalState.mu.Lock()
-			globalState.running = false
-			globalState.cancel = nil
-			globalState.tunnels = nil
-			if err != nil {
-				globalState.appendLocked("[ERROR] launcher: tunnel-client exited with error: " + err.Error())
-			} else {
-				globalState.appendLocked("[INFO] launcher: tunnel-client stopped")
-			}
-			globalState.mu.Unlock()
-		}()
 	}
 
 	// Open browser if not in silent mode
@@ -249,6 +230,7 @@ func (s *launcherState) status(w http.ResponseWriter, r *http.Request) {
 		"config":  hiddenCfg,
 		"running": s.running,
 		"started": s.started,
+		"nodes":   activeNodeIDs(s.tunnels),
 		"tunnels": s.tunnels,
 		"logs":    append([]string(nil), s.logs...),
 	})
@@ -274,44 +256,10 @@ func (s *launcherState) start(w http.ResponseWriter, r *http.Request) {
 		writeLauncherError(w, http.StatusBadRequest, fmt.Errorf("server, user and password are required"))
 		return
 	}
-	refreshDur, err := time.ParseDuration(cfg.Refresh)
-	if err != nil {
-		writeLauncherError(w, http.StatusBadRequest, fmt.Errorf("invalid refresh interval: %w", err))
+	if err := s.startClient(cfg, true); err != nil {
+		writeLauncherError(w, http.StatusBadRequest, err)
 		return
 	}
-
-	s.mu.Lock()
-	if s.running {
-		s.mu.Unlock()
-		writeLauncherError(w, http.StatusConflict, fmt.Errorf("client is already running"))
-		return
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
-	s.cfg = cfg
-	s.running = true
-	s.started = time.Now()
-	s.tunnels = nil
-	s.logs = make([]string, 0)
-	s.appendLocked("[INFO] launcher: starting tunnel-client...")
-	s.mu.Unlock()
-
-	_ = saveLauncherConfig(cfg)
-
-	go func() {
-		err := runClientCtx(ctx, cfg.ControlURL, cfg.User, cfg.Password, refreshDur)
-		s.mu.Lock()
-		s.running = false
-		s.cancel = nil
-		s.tunnels = nil
-		if err != nil {
-			s.appendLocked("[ERROR] launcher: tunnel-client exited with error: " + err.Error())
-		} else {
-			s.appendLocked("[INFO] launcher: tunnel-client stopped")
-		}
-		s.mu.Unlock()
-	}()
 
 	writeLauncherJSON(w, map[string]any{"status": "started"})
 }
@@ -329,6 +277,85 @@ func (s *launcherState) stop(w http.ResponseWriter, r *http.Request) {
 
 	cancel()
 	writeLauncherJSON(w, map[string]any{"status": "stopping"})
+}
+
+func (s *launcherState) restart(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	cfg := s.cfg
+	cancel := s.cancel
+	running := s.running
+	if cfg.ControlURL == "" || cfg.User == "" || cfg.Password == "" {
+		s.mu.Unlock()
+		writeLauncherError(w, http.StatusBadRequest, fmt.Errorf("saved server, user and password are required"))
+		return
+	}
+	if running && cancel != nil {
+		s.appendLocked("[INFO] launcher: reconnect requested")
+		cancel()
+	}
+	s.mu.Unlock()
+
+	go func() {
+		if running {
+			deadline := time.Now().Add(8 * time.Second)
+			for time.Now().Before(deadline) {
+				s.mu.Lock()
+				stopped := !s.running
+				s.mu.Unlock()
+				if stopped {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+		if err := s.startClient(cfg, false); err != nil {
+			s.mu.Lock()
+			s.appendLocked("[ERROR] launcher: reconnect failed: " + err.Error())
+			s.mu.Unlock()
+		}
+	}()
+
+	writeLauncherJSON(w, map[string]any{"status": "restarting"})
+}
+
+func (s *launcherState) startClient(cfg launcherConfig, clearLogs bool) error {
+	refreshDur, err := time.ParseDuration(cfg.Refresh)
+	if err != nil {
+		return fmt.Errorf("invalid refresh interval: %w", err)
+	}
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return fmt.Errorf("client is already running")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.cfg = cfg
+	s.running = true
+	s.started = time.Now()
+	s.tunnels = nil
+	if clearLogs {
+		s.logs = make([]string, 0)
+	}
+	s.appendLocked("[INFO] launcher: starting Cosmo NPS client...")
+	s.mu.Unlock()
+
+	_ = saveLauncherConfig(cfg)
+
+	go func() {
+		err := runClientCtx(ctx, cfg.ControlURL, cfg.User, cfg.Password, refreshDur)
+		s.mu.Lock()
+		s.running = false
+		s.cancel = nil
+		s.tunnels = nil
+		if err != nil {
+			s.appendLocked("[ERROR] launcher: Cosmo NPS client exited with error: " + err.Error())
+		} else {
+			s.appendLocked("[INFO] launcher: Cosmo NPS client stopped")
+		}
+		s.mu.Unlock()
+	}()
+	return nil
 }
 
 func (s *launcherState) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -444,12 +471,29 @@ func (s *launcherState) updateTunnels(nodes []bootstrapNode) {
 	s.UpdateTunnels(list)
 }
 
+func activeNodeIDs(tunnels []core.Tunnel) []string {
+	seen := map[string]bool{}
+	var nodes []string
+	for _, tunnel := range tunnels {
+		nodeID := strings.TrimSpace(tunnel.NodeID)
+		if nodeID == "" {
+			nodeID = core.DefaultNodeID
+		}
+		if !seen[nodeID] {
+			seen[nodeID] = true
+			nodes = append(nodes, nodeID)
+		}
+	}
+	sort.Strings(nodes)
+	return nodes
+}
+
 const launcherHTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tunnel Client Dashboard</title>
+  <title>Cosmo NPS Client</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico?v=5" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1088,8 +1132,8 @@ const launcherHTML = `<!doctype html>
           </svg>
         </div>
         <div class="brand-title">
-          <h1>Tunnel Client</h1>
-          <p>NPS 多节点隧道客户端</p>
+          <h1>Cosmo NPS</h1>
+          <p>多节点隧道客户端</p>
         </div>
       </div>
 
@@ -1123,6 +1167,10 @@ const launcherHTML = `<!doctype html>
           <div class="meta-item">
             <span>活动隧道</span>
             <strong id="meta-tunnels">0 个</strong>
+          </div>
+          <div class="meta-item">
+            <span>当前节点</span>
+            <strong id="meta-nodes">-</strong>
           </div>
           <div class="meta-item">
             <span>运行时间</span>
@@ -1161,6 +1209,7 @@ const launcherHTML = `<!doctype html>
             </div>
             <div class="form-actions">
               <button type="submit" id="btn-start">启动客户端</button>
+              <button type="button" id="btn-restart">重新连接</button>
               <button type="button" class="danger-btn" id="btn-stop">停止</button>
             </div>
           </form>
@@ -1201,7 +1250,7 @@ const launcherHTML = `<!doctype html>
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-title">开机自启动</span>
-              <span class="setting-desc">当 Windows 系统启动时，在后台静默运行客户端</span>
+              <span class="setting-desc" id="setting-autostart-desc">当 Windows 系统启动时，在后台静默运行 Cosmo NPS</span>
             </div>
             <label class="switch">
               <input type="checkbox" id="setting-autostart" />
@@ -1232,6 +1281,7 @@ const launcherHTML = `<!doctype html>
     const metaServer = document.querySelector("#meta-server");
     const metaUser = document.querySelector("#meta-user");
     const metaTunnels = document.querySelector("#meta-tunnels");
+    const metaNodes = document.querySelector("#meta-nodes");
     const metaUptime = document.querySelector("#meta-uptime");
     
     let uptimeInterval = null;
@@ -1326,6 +1376,7 @@ const launcherHTML = `<!doctype html>
       // Sidebar meta update
       metaServer.textContent = data.config?.controlUrl || "-";
       metaUser.textContent = data.config?.user || "-";
+      metaNodes.textContent = (data.nodes && data.nodes.length) ? data.nodes.join(", ") : "-";
 
       // Status styling
       if (data.running) {
@@ -1343,6 +1394,7 @@ const launcherHTML = `<!doctype html>
         uptimeInterval = null;
         startedTime = null;
         metaUptime.textContent = "-";
+        metaNodes.textContent = "-";
       }
 
       // Tunnels list rendering
@@ -1392,6 +1444,9 @@ const launcherHTML = `<!doctype html>
       try {
         const data = await api("/api/settings");
         document.querySelector("#setting-autostart").checked = data.autoStart;
+        document.querySelector("#setting-autostart-desc").textContent = data.autoStart
+          ? "已开启，Windows 登录后会自动静默运行 Cosmo NPS"
+          : "未开启，可在 Windows 登录后自动静默运行 Cosmo NPS";
       } catch (err) {
         console.error("Failed to load settings:", err);
       }
@@ -1403,6 +1458,9 @@ const launcherHTML = `<!doctype html>
           method: "POST",
           body: JSON.stringify({ autoStart: e.target.checked })
         });
+        document.querySelector("#setting-autostart-desc").textContent = e.target.checked
+          ? "已开启，Windows 登录后会自动静默运行 Cosmo NPS"
+          : "未开启，可在 Windows 登录后自动静默运行 Cosmo NPS";
       } catch (err) {
         alert("保存设置失败: " + err.message);
         e.target.checked = !e.target.checked;
@@ -1437,6 +1495,15 @@ const launcherHTML = `<!doctype html>
         refresh();
       } catch (err) {
         alert("停止失败: " + err.message);
+      }
+    });
+
+    document.querySelector("#btn-restart").addEventListener("click", async () => {
+      try {
+        await api("/api/restart", { method: "POST" });
+        refresh();
+      } catch (err) {
+        alert("重连失败: " + err.message);
       }
     });
 

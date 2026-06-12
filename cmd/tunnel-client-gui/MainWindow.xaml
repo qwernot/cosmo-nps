@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:TunnelClientGui"
         mc:Ignorable="d"
-        Title="Tunnel Client" Icon="app.ico" Height="660" Width="980"
+        Title="Cosmo NPS" Icon="app.ico" Height="660" Width="980"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         WindowStartupLocation="CenterScreen">
     
@@ -321,7 +321,7 @@
                 <!-- Logo & Brand in Title Bar -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
                     <Image Source="app-logo.png" Width="34" Height="34" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <TextBlock Text="NPS 隧道客户端" Margin="10,0,0,0" Foreground="White" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+                    <TextBlock Text="Cosmo NPS" Margin="10,0,0,0" Foreground="White" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Right-side Window Control Buttons -->
@@ -419,6 +419,9 @@
                             <TextBlock Text="运行时长" Foreground="#64748B" FontSize="11" Margin="0,0,0,2"/>
                             <TextBlock x:Name="UptimeText" Text="-- : -- : --" Foreground="White" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,10"/>
 
+                            <TextBlock Text="当前节点" Foreground="#64748B" FontSize="11" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="ActiveNodesText" Text="未连接" Foreground="White" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,10" TextTrimming="CharacterEllipsis"/>
+
                             <TextBlock Text="客户端用户" Foreground="#64748B" FontSize="11" Margin="0,0,0,2"/>
                             <TextBlock x:Name="ClientUserText" Text="未载入" Foreground="White" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
@@ -481,9 +484,10 @@
                                     <!-- Password and Actions -->
                                     <Grid Grid.Row="2" Margin="0,12,0,0">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="4*"/>
-                                            <ColumnDefinition Width="1.5*"/>
-                                            <ColumnDefinition Width="1.5*"/>
+                                            <ColumnDefinition Width="3.4*"/>
+                                            <ColumnDefinition Width="1.3*"/>
+                                            <ColumnDefinition Width="1.3*"/>
+                                            <ColumnDefinition Width="1.3*"/>
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" Orientation="Vertical">
@@ -491,8 +495,9 @@
                                             <PasswordBox x:Name="PasswordBox" Margin="0,0,10,0"/>
                                         </StackPanel>
 
-                                        <Button x:Name="ConnectButton" Click="ConnectButton_Click" Grid.Column="1" Style="{StaticResource PrimaryButtonStyle}" Content="开始连接" Height="40" Margin="0,18,10,0" VerticalAlignment="Bottom"/>
-                                        <Button x:Name="DisconnectButton" Click="DisconnectButton_Click" Grid.Column="2" Style="{StaticResource DangerButtonStyle}" Content="断开连接" Height="40" Margin="0,18,0,0" VerticalAlignment="Bottom" IsEnabled="False"/>
+                                        <Button x:Name="ConnectButton" Click="ConnectButton_Click" Grid.Column="1" Style="{StaticResource PrimaryButtonStyle}" Content="开始连接" Height="40" Margin="0,18,8,0" VerticalAlignment="Bottom"/>
+                                        <Button x:Name="ReconnectButton" Click="ReconnectButton_Click" Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}" Content="重新连接" Height="40" Margin="0,18,8,0" VerticalAlignment="Bottom" IsEnabled="False"/>
+                                        <Button x:Name="DisconnectButton" Click="DisconnectButton_Click" Grid.Column="3" Style="{StaticResource DangerButtonStyle}" Content="断开连接" Height="40" Margin="0,18,0,0" VerticalAlignment="Bottom" IsEnabled="False"/>
                                     </Grid>
                                 </Grid>
                             </Border>
@@ -582,7 +587,7 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0">
                                                 <TextBlock Text="开机自动启动" Foreground="White" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                                                <TextBlock Text="在 Windows 系统启动时，自动运行 NPS 隧道后台服务" Foreground="#64748B" FontSize="12"/>
+                                                <TextBlock x:Name="AutoStartStatusText" Text="读取中..." Foreground="#64748B" FontSize="12"/>
                                             </StackPanel>
                                             <CheckBox x:Name="AutoStartToggle" Click="AutoStartToggle_Click" Grid.Column="1" Style="{StaticResource ToggleSwitchStyle}" VerticalAlignment="Center"/>
                                         </Grid>
@@ -634,9 +639,9 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="关于客户端" Foreground="White" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                                            <TextBlock Text="NPS Multi-Node Native Tunnel Client GUI 1.0.0" Foreground="#64748B" FontSize="12"/>
+                                            <TextBlock Text="Cosmo NPS Windows 客户端，支持托盘、开机自启和一键重连" Foreground="#64748B" FontSize="12"/>
                                         </StackPanel>
-                                        <TextBlock Grid.Column="1" Text="v1.0.0" Foreground="#64748B" FontSize="13" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="VersionText" Grid.Column="1" Text="v1.0.0" Foreground="#64748B" FontSize="13" VerticalAlignment="Center"/>
                                     </Grid>
                                 </StackPanel>
                             </Grid>

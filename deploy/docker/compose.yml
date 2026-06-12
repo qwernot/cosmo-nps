@@ -1,6 +1,6 @@
 services:
   tunnel-stack:
-    image: darkver8/tunnel-all:latest
+    image: darkver8/cosmo-nps:latest
     container_name: tunnel-stack
     restart: unless-stopped
     network_mode: host
