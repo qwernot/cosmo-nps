@@ -17,7 +17,7 @@ step()  { echo -e "${CYAN}[STEP]${NC}  $*"; }
 
 IMAGE="${IMAGE:-darkver8/cosmo-nps:latest}"
 SERVICE="${SERVICE:-tunnel-stack}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8088/healthz}"
+DEFAULT_CONTROL_PORT="${DEFAULT_CONTROL_PORT:-8088}"
 DEFAULT_ADMIN_USER="${DEFAULT_ADMIN_USER:-admin}"
 DEFAULT_ADMIN_PASSWORD="${DEFAULT_ADMIN_PASSWORD:-$(openssl rand -base64 12 2>/dev/null || echo 'change-this-password')}"
 SETUP_DOCKER_MIRROR="${SETUP_DOCKER_MIRROR:-0}"
@@ -180,6 +180,8 @@ resolve_public_addr() {
 prompt_if_needed() {
     if [[ "${NONINTERACTIVE:-0}" == "1" ]]; then
         PUBLIC_ADDR="$(resolve_public_addr)"
+        CONTROL_PORT="${CONTROL_PORT:-$DEFAULT_CONTROL_PORT}"
+        validate_port "$CONTROL_PORT"
         ADMIN_USER="${ADMIN_USER:-$DEFAULT_ADMIN_USER}"
         ADMIN_PASSWORD="${ADMIN_PASSWORD:-$DEFAULT_ADMIN_PASSWORD}"
         return 0
@@ -188,13 +190,24 @@ prompt_if_needed() {
     echo ""
     echo "========== Cosmo NPS total-control config =========="
     read -rp "Public IP/domain [blank=auto]: " PUBLIC_ADDR_INPUT
+    read -rp "Control web port [$DEFAULT_CONTROL_PORT]: " CONTROL_PORT_INPUT
     read -rp "Admin username [$DEFAULT_ADMIN_USER]: " ADMIN_USER_INPUT
     read -rp "Admin password [$DEFAULT_ADMIN_PASSWORD]: " ADMIN_PASSWORD_INPUT
 
     PUBLIC_ADDR="${PUBLIC_ADDR_INPUT:-${PUBLIC_ADDR:-}}"
     PUBLIC_ADDR="$(resolve_public_addr)"
+    CONTROL_PORT="${CONTROL_PORT_INPUT:-${CONTROL_PORT:-$DEFAULT_CONTROL_PORT}}"
+    validate_port "$CONTROL_PORT"
     ADMIN_USER="${ADMIN_USER_INPUT:-${ADMIN_USER:-$DEFAULT_ADMIN_USER}}"
     ADMIN_PASSWORD="${ADMIN_PASSWORD_INPUT:-${ADMIN_PASSWORD:-$DEFAULT_ADMIN_PASSWORD}}"
+}
+
+validate_port() {
+    local port="$1"
+    if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+        error "Invalid control port: $port"
+        exit 1
+    fi
 }
 
 write_env_value() {
@@ -209,6 +222,7 @@ write_env_file() {
     umask 077
     {
         write_env_value PUBLIC_ADDR "$PUBLIC_ADDR"
+        write_env_value CONTROL_PORT "$CONTROL_PORT"
         write_env_value ADMIN_USER "$ADMIN_USER"
         write_env_value ADMIN_PASSWORD "$ADMIN_PASSWORD"
     } > .env
@@ -271,13 +285,14 @@ deploy_control() {
     $COMPOSE_CMD up -d "$SERVICE"
 
     step "Waiting for service health"
+    local health_url="${HEALTH_URL:-http://127.0.0.1:$CONTROL_PORT/healthz}"
     for _ in $(seq 1 30); do
-        if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+        if curl -fsS "$health_url" >/dev/null 2>&1; then
             echo ""
             echo "=========================================="
             echo -e "  ${GREEN}Total-control deployed successfully${NC}"
             echo "=========================================="
-            echo "  URL:      http://$PUBLIC_ADDR:8088"
+            echo "  URL:      http://$PUBLIC_ADDR:$CONTROL_PORT"
             echo "  Username: $ADMIN_USER"
             echo "  Password: $ADMIN_PASSWORD"
             echo ""

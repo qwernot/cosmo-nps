@@ -99,7 +99,7 @@
 
     <section>
       <h2>一、总控部署</h2>
-      <p>总控只需要开放 <code>8088/tcp</code>。</p>
+      <p>总控只需要开放后台端口，默认是 <code>8088/tcp</code>，部署时可以通过 <code>CONTROL_PORT</code> 自定义。</p>
       <h3>一键脚本</h3>
       <pre><code>git clone https://github.com/qwernot/cosmo-nps.git
 cd cosmo-nps
@@ -107,6 +107,7 @@ sudo bash deploy/quick-deploy.sh</code></pre>
 
       <h3>静默部署</h3>
       <pre><code>sudo PUBLIC_ADDR=192.168.6.64 \
+  CONTROL_PORT=8088 \
   ADMIN_USER=admin \
   ADMIN_PASSWORD='change-this-password' \
   NONINTERACTIVE=1 \
@@ -118,16 +119,18 @@ sudo bash deploy/quick-deploy.sh</code></pre>
     image: darkver8/cosmo-nps:latest
     container_name: tunnel-stack
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "${CONTROL_PORT:-8088}:${CONTROL_PORT:-8088}"
     environment:
       PUBLIC_ADDR: 192.168.6.64
+      CONTROL_PORT: ${CONTROL_PORT:-8088}
       ADMIN_USER: admin
       ADMIN_PASSWORD: change-this-password
     volumes:
       - ./data:/app/data</code></pre>
 
       <p>访问地址：</p>
-      <pre><code>http://总控IP:8088</code></pre>
+      <pre><code>http://总控IP:${CONTROL_PORT:-8088}</code></pre>
     </section>
 
     <section>
@@ -216,7 +219,7 @@ docker compose restart tunnel-client
 docker compose down</code></pre>
 
       <h3>健康检查</h3>
-      <pre><code>curl http://127.0.0.1:8088/healthz</code></pre>
+      <pre><code>curl http://127.0.0.1:${CONTROL_PORT:-8088}/healthz</code></pre>
     </section>
 
     <section>

@@ -3,12 +3,19 @@ set -eu
 
 IMAGE="${IMAGE:-darkver8/cosmo-nps:latest}"
 SERVICE="${SERVICE:-tunnel-stack}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8088/healthz}"
 COMPOSE="${COMPOSE:-docker compose}"
 DATA_DIR="${DATA_DIR:-./data}"
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 
 cd "$(dirname "$0")"
+
+if [ -f .env ]; then
+  # shellcheck disable=SC1091
+  . ./.env
+fi
+
+CONTROL_PORT="${CONTROL_PORT:-8088}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${CONTROL_PORT}/healthz}"
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR"

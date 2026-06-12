@@ -961,6 +961,21 @@ pre {
   font-family: Consolas, monospace;
 }
 
+.traffic-summary .traffic-speed {
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+
+.traffic-summary .traffic-speed.speed-active {
+  color: #34d399;
+  font-weight: 700;
+}
+
+.traffic-summary .traffic-speed.speed-silent {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .traffic-progress-bar {
   width: 100%;
   height: 6px;

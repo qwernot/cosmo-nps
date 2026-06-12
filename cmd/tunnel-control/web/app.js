@@ -217,6 +217,7 @@ function renderUsers() {
       <td>
         <div class="cell-actions">
           <button class="button small secondary" data-edit-user="${escapeHtml(u.name)}">编辑</button>
+          <button class="button small secondary" data-reset-user-flow="${escapeHtml(u.name)}">清零流量</button>
           <button class="button small danger" data-delete-user="${escapeHtml(u.name)}">删除</button>
         </div>
       </td>
@@ -746,6 +747,14 @@ async function deleteUser(name) {
   toast("用户已删除");
 }
 
+async function resetUserFlow(name) {
+  if (!isAdmin()) return;
+  if (!confirm(`清零用户 ${name} 的已用流量？`)) return;
+  await api(`/api/users/${encodeURIComponent(name)}/reset-flow`, { method: "POST" });
+  await refresh();
+  toast("流量已清零");
+}
+
 async function deleteNode(id) {
   if (!isAdmin()) return;
   if (!confirm(`删除节点 ${id}？已被隧道使用的节点不能删除。`)) return;
@@ -845,6 +854,7 @@ document.addEventListener("click", async (event) => {
   if (target.dataset.editUser) editUser(target.dataset.editUser);
   if (target.dataset.editNode) editNode(target.dataset.editNode);
   if (target.dataset.editTunnel) editTunnel(target.dataset.editTunnel);
+  if (target.dataset.resetUserFlow) await resetUserFlow(target.dataset.resetUserFlow).catch((err) => toast(err.message));
   if (target.dataset.deleteUser) await deleteUser(target.dataset.deleteUser).catch((err) => toast(err.message));
   if (target.dataset.deleteNode) await deleteNode(target.dataset.deleteNode).catch((err) => toast(err.message));
   if (target.dataset.deleteTunnel) await deleteTunnel(target.dataset.deleteTunnel).catch((err) => toast(err.message));
@@ -899,6 +909,15 @@ function formatSpeed(bytesPerSec) {
 function userTrafficSummary(u) {
   const rateLimitText = u.rateLimit > 0 ? `${u.rateLimit} Mbps` : "不限速";
   const flowUsedText = formatBytes(u.flowUsed || 0);
+  const upSpeed = formatSpeed(u.inletSpeed || 0);
+  const downSpeed = formatSpeed(u.exportSpeed || 0);
+  let speedText = "静默";
+  if (u.inletSpeed > 0 || u.exportSpeed > 0) {
+    const upStr = u.inletSpeed > 0 ? `↑${upSpeed}` : "";
+    const downStr = u.exportSpeed > 0 ? `↓${downSpeed}` : "";
+    speedText = [upStr, downStr].filter(Boolean).join(" ");
+  }
+  const speedClass = speedText === "静默" ? "speed-silent" : "speed-active";
   
   if (u.flowLimit > 0) {
     const limitBytes = u.flowLimit * 1024 * 1024 * 1024;
@@ -912,6 +931,7 @@ function userTrafficSummary(u) {
         <div class="traffic-progress-bar" title="已用 ${percent}%">
           <div class="bar-fill" style="width: ${percent}%;"></div>
         </div>
+        <span class="traffic-speed ${speedClass}">${speedText}</span>
       </div>
     `;
   } else {
@@ -921,6 +941,7 @@ function userTrafficSummary(u) {
           <span class="badge ok">${rateLimitText}</span>
           <span class="traffic-total">${flowUsedText} / 不限</span>
         </div>
+        <span class="traffic-speed ${speedClass}">${speedText}</span>
       </div>
     `;
   }

@@ -350,6 +350,21 @@ func (s *Store) DeleteUser(name string) error {
 	return s.saveLocked()
 }
 
+func (s *Store) ResetUserFlow(name string) error {
+	if name == "" {
+		return fmt.Errorf("user name is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.db.Users[name]
+	if !ok {
+		return fmt.Errorf("user %q not found", name)
+	}
+	u.FlowUsed = 0
+	u.UpdatedAt = time.Now().UTC()
+	return s.saveLocked()
+}
+
 func (s *Store) ListTunnels(userName string) []Tunnel {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -3,9 +3,11 @@ services:
     image: darkver8/cosmo-nps:latest
     container_name: tunnel-stack
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "${CONTROL_PORT:-8088}:${CONTROL_PORT:-8088}"
     environment:
       PUBLIC_ADDR: ${PUBLIC_ADDR}
+      CONTROL_PORT: ${CONTROL_PORT:-8088}
       ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
     volumes:

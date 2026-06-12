@@ -24,7 +24,7 @@ darkver8/cosmo-nps-client   用户客户端，运行 Cosmo NPS Client
 
 ## 总控部署
 
-总控只需要开放后台端口 `8088`，不监听 NPS 业务端口。
+总控只需要开放后台端口，默认是 `8088/tcp`，部署时可以自定义；总控不监听 NPS 业务端口。
 
 ```bash
 git clone https://github.com/qwernot/cosmo-nps.git
@@ -36,6 +36,7 @@ sudo bash deploy/quick-deploy.sh
 
 ```bash
 sudo PUBLIC_ADDR=192.168.6.64 \
+  CONTROL_PORT=8088 \
   ADMIN_USER=admin \
   ADMIN_PASSWORD='change-this-password' \
   NONINTERACTIVE=1 \
@@ -50,9 +51,11 @@ services:
     image: darkver8/cosmo-nps:latest
     container_name: tunnel-stack
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "${CONTROL_PORT:-8088}:${CONTROL_PORT:-8088}"
     environment:
       PUBLIC_ADDR: 192.168.6.64
+      CONTROL_PORT: ${CONTROL_PORT:-8088}
       ADMIN_USER: admin
       ADMIN_PASSWORD: change-this-password
     volumes:
@@ -62,7 +65,7 @@ services:
 访问：
 
 ```text
-http://192.168.6.64:8088
+http://192.168.6.64:${CONTROL_PORT:-8088}
 ```
 
 如果已有 `data` 数据目录，`ADMIN_USER` / `ADMIN_PASSWORD` 只用于首次初始化，不会重置已有管理员密码。
@@ -141,7 +144,7 @@ services:
 总控服务器：
 
 ```text
-8088/tcp  Web 后台
+8088/tcp  Web 后台，默认端口，可通过 CONTROL_PORT 修改
 ```
 
 节点服务器：
@@ -188,7 +191,7 @@ docker compose down
 健康检查：
 
 ```bash
-curl http://127.0.0.1:8088/healthz
+curl http://127.0.0.1:${CONTROL_PORT:-8088}/healthz
 ```
 
 ## 本地构建与推送

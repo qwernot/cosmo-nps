@@ -15,6 +15,7 @@ docker compose up -d
 
 ```text
 PUBLIC_ADDR=总控服务器 IP 或域名
+CONTROL_PORT=8088
 ADMIN_PASSWORD=强密码
 ```
 
@@ -22,6 +23,12 @@ ADMIN_PASSWORD=强密码
 
 ```text
 http://总控IP:8088
+```
+
+如果把 `CONTROL_PORT` 改成其他端口，例如 `18088`，访问地址就是：
+
+```text
+http://总控IP:18088
 ```
 
 ## 镜像
@@ -46,7 +53,7 @@ docker compose down
 ## 健康检查
 
 ```bash
-curl http://127.0.0.1:8088/healthz
+curl http://127.0.0.1:${CONTROL_PORT:-8088}/healthz
 ```
 
 ## 升级
@@ -55,4 +62,4 @@ curl http://127.0.0.1:8088/healthz
 bash upgrade.sh
 ```
 
-`upgrade.sh` 会备份现有数据、拉取 `darkver8/cosmo-nps:latest`、重启容器并检查健康状态。
+`upgrade.sh` 会读取 `.env` 里的 `CONTROL_PORT`，备份现有数据、拉取 `darkver8/cosmo-nps:latest`、重启容器并检查健康状态。

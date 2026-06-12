@@ -8,6 +8,7 @@ EXPORT_DIR="$DATA_DIR/export"
 PUBLIC_ADDR="${PUBLIC_ADDR:-127.0.0.1}"
 ADMIN_USER="${ADMIN_USER:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
+CONTROL_PORT="${CONTROL_PORT:-8088}"
 
 # Runtime values used when generating configs for the legacy local node.
 # Real tunnel endpoints should be defined on each tunnel-agent node.
@@ -25,7 +26,7 @@ for dir in "$DATA_DIR" "$CONTROL_DIR" "$EXPORT_DIR"; do
 done
 
 set -- \
-  -addr :8088 \
+  -addr ":$CONTROL_PORT" \
   -db "$CONTROL_DIR/tunnel-control.json" \
   -public-addr "$PUBLIC_ADDR" \
   -nps-port "$NPS_BRIDGE_PORT" \

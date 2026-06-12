@@ -113,6 +113,7 @@ func main() {
 	mux.HandleFunc("POST /api/password", api.changePassword)
 	mux.HandleFunc("GET /api/users", api.listUsers)
 	mux.HandleFunc("POST /api/users", api.upsertUser)
+	mux.HandleFunc("POST /api/users/", api.userAction)
 	mux.HandleFunc("DELETE /api/users/", api.deleteUser)
 	mux.HandleFunc("GET /api/agent/bundle", api.agentBundle)
 	mux.HandleFunc("GET /api/nodes", api.listNodes)
@@ -147,6 +148,8 @@ func main() {
 }
 
 type tunnelTrafficState struct {
+	NodeID         string
+	TunnelID       string
 	LastInletFlow  int64
 	LastExportFlow int64
 	LastSeenAt     time.Time
@@ -157,6 +160,8 @@ type tunnelTrafficState struct {
 }
 
 type userTrafficState struct {
+	NodeID         string
+	UserName       string
 	LastInletFlow  int64
 	LastExportFlow int64
 	LastSeenAt     time.Time
@@ -164,6 +169,10 @@ type userTrafficState struct {
 	ExportFlow     int64
 	InletSpeed     int64
 	ExportSpeed    int64
+}
+
+func trafficKey(nodeID, itemID string) string {
+	return nodeID + "\x00" + itemID
 }
 
 type apiServer struct {
@@ -434,10 +443,14 @@ func (a *apiServer) changePassword(w http.ResponseWriter, r *http.Request) {
 func (a *apiServer) listUsers(w http.ResponseWriter, r *http.Request) {
 	user := requestUser(r)
 	if isAdmin(user) {
-		writeJSON(w, http.StatusOK, a.store.ListUsers())
+		users := a.store.ListUsers()
+		a.attachUserTraffic(users)
+		writeJSON(w, http.StatusOK, users)
 		return
 	}
-	writeJSON(w, http.StatusOK, []core.PublicUser{core.Public(user)})
+	users := []core.PublicUser{core.Public(user)}
+	a.attachUserTraffic(users)
+	writeJSON(w, http.StatusOK, users)
 }
 
 func (a *apiServer) upsertUser(w http.ResponseWriter, r *http.Request) {
@@ -535,6 +548,30 @@ func (a *apiServer) deleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	a.pushRemoteNodesAsync()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (a *apiServer) userAction(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/users/")
+	name, action, ok := strings.Cut(path, "/")
+	if !ok || name == "" || action != "reset-flow" {
+		http.NotFound(w, r)
+		return
+	}
+	if err := a.store.ResetUserFlow(name); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	a.trafficMu.Lock()
+	for key, state := range a.userTraffic {
+		if state.UserName == name {
+			delete(a.userTraffic, key)
+		}
+	}
+	a.trafficMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "flow reset"})
 }
 
 func (a *apiServer) listNodes(w http.ResponseWriter, r *http.Request) {
@@ -995,11 +1032,13 @@ func (a *apiServer) listAvailability(w http.ResponseWriter, r *http.Request) {
 	list := availabilityFor(tunnels, liveClients, a.runtimeForTunnel)
 	a.trafficMu.Lock()
 	for i := range list {
-		if state, exists := a.tunnelTraffic[list[i].TunnelID]; exists {
-			list[i].InletFlow = state.InletFlow
-			list[i].ExportFlow = state.ExportFlow
-			list[i].InletSpeed = state.InletSpeed
-			list[i].ExportSpeed = state.ExportSpeed
+		for _, state := range a.tunnelTraffic {
+			if state.TunnelID == list[i].TunnelID {
+				list[i].InletFlow += state.InletFlow
+				list[i].ExportFlow += state.ExportFlow
+				list[i].InletSpeed += state.InletSpeed
+				list[i].ExportSpeed += state.ExportSpeed
+			}
 		}
 	}
 	a.trafficMu.Unlock()
@@ -1008,6 +1047,19 @@ func (a *apiServer) listAvailability(w http.ResponseWriter, r *http.Request) {
 		"generatedAt":  time.Now().UTC(),
 		"availability": list,
 	})
+}
+
+func (a *apiServer) attachUserTraffic(users []core.PublicUser) {
+	a.trafficMu.Lock()
+	defer a.trafficMu.Unlock()
+	for i := range users {
+		for _, state := range a.userTraffic {
+			if state.UserName == users[i].Name {
+				users[i].InletSpeed += state.InletSpeed
+				users[i].ExportSpeed += state.ExportSpeed
+			}
+		}
+	}
 }
 
 func filterUsersByName(users []core.User, name string) []core.User {
@@ -2013,12 +2065,20 @@ func (a *apiServer) reportTraffic(w http.ResponseWriter, r *http.Request) {
 	defer a.trafficMu.Unlock()
 
 	for _, traffic := range req.Tunnels {
-		state, exists := a.tunnelTraffic[traffic.TunnelID]
+		key := trafficKey(req.NodeID, traffic.TunnelID)
+		state, exists := a.tunnelTraffic[key]
 		if !exists {
 			state = &tunnelTrafficState{
-				LastSeenAt: now,
+				NodeID:         req.NodeID,
+				TunnelID:       traffic.TunnelID,
+				InletFlow:      traffic.InletFlow,
+				ExportFlow:     traffic.ExportFlow,
+				LastInletFlow:  traffic.InletFlow,
+				LastExportFlow: traffic.ExportFlow,
+				LastSeenAt:     now,
 			}
-			a.tunnelTraffic[traffic.TunnelID] = state
+			a.tunnelTraffic[key] = state
+			continue
 		}
 
 		timeDelta := now.Sub(state.LastSeenAt).Seconds()
@@ -2035,6 +2095,8 @@ func (a *apiServer) reportTraffic(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		state.LastInletFlow = state.InletFlow
+		state.LastExportFlow = state.ExportFlow
 		state.InletFlow = traffic.InletFlow
 		state.ExportFlow = traffic.ExportFlow
 		state.LastSeenAt = now
@@ -2042,12 +2104,20 @@ func (a *apiServer) reportTraffic(w http.ResponseWriter, r *http.Request) {
 
 	dirtyUsers := false
 	for _, traffic := range req.Users {
-		state, exists := a.userTraffic[traffic.UserName]
+		key := trafficKey(req.NodeID, traffic.UserName)
+		state, exists := a.userTraffic[key]
 		if !exists {
 			state = &userTrafficState{
-				LastSeenAt: now,
+				NodeID:         req.NodeID,
+				UserName:       traffic.UserName,
+				InletFlow:      traffic.InletFlow,
+				ExportFlow:     traffic.ExportFlow,
+				LastInletFlow:  traffic.InletFlow,
+				LastExportFlow: traffic.ExportFlow,
+				LastSeenAt:     now,
 			}
-			a.userTraffic[traffic.UserName] = state
+			a.userTraffic[key] = state
+			continue
 		}
 
 		timeDelta := now.Sub(state.LastSeenAt).Seconds()
@@ -2068,14 +2138,16 @@ func (a *apiServer) reportTraffic(w http.ResponseWriter, r *http.Request) {
 		if traffic.InletFlow >= state.InletFlow {
 			deltaIn = traffic.InletFlow - state.InletFlow
 		} else {
-			deltaIn = traffic.InletFlow
+			deltaIn = 0
 		}
 		if traffic.ExportFlow >= state.ExportFlow {
 			deltaOut = traffic.ExportFlow - state.ExportFlow
 		} else {
-			deltaOut = traffic.ExportFlow
+			deltaOut = 0
 		}
 
+		state.LastInletFlow = state.InletFlow
+		state.LastExportFlow = state.ExportFlow
 		state.InletFlow = traffic.InletFlow
 		state.ExportFlow = traffic.ExportFlow
 		state.LastSeenAt = now

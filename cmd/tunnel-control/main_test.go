@@ -264,19 +264,20 @@ func TestTrafficReport(t *testing.T) {
 		t.Fatalf("expected status 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	// Verify User FlowUsed
+	// The first report establishes a baseline from the node's cumulative NPS
+	// counters. It must not bill historical bytes again after a control restart.
 	u, ok := store.GetUser("alice")
 	if !ok {
 		t.Fatal("user alice not found")
 	}
-	if u.FlowUsed != 500*1024*1024 {
-		t.Fatalf("expected FlowUsed to be 500MB (524288000), got %d", u.FlowUsed)
+	if u.FlowUsed != 0 {
+		t.Fatalf("expected first report to only establish baseline, got FlowUsed %d", u.FlowUsed)
 	}
 	if !u.Enabled {
 		t.Fatal("expected user to still be enabled")
 	}
 
-	// Step 2: Report traffic exceeding limit (e.g. another 600 MB, taking total to 1.1 GB)
+	// Step 2: Report another 600 MB after the baseline.
 	report2 := core.TrafficReport{
 		NodeID: "node-1",
 		Users: []core.UserTraffic{
@@ -304,11 +305,99 @@ func TestTrafficReport(t *testing.T) {
 	if !ok {
 		t.Fatal("user alice not found")
 	}
-	expectedFlow := int64(1100 * 1024 * 1024)
+	expectedFlow := int64(600 * 1024 * 1024)
 	if u2.FlowUsed != expectedFlow {
-		t.Fatalf("expected FlowUsed to be 1100MB, got %d", u2.FlowUsed)
+		t.Fatalf("expected FlowUsed to be 600MB, got %d", u2.FlowUsed)
 	}
-	if u2.Enabled {
+	if !u2.Enabled {
+		t.Fatal("expected user to still be enabled")
+	}
+
+	// Step 3: Report another 600 MB, taking total counted traffic to 1.2 GB.
+	report3 := core.TrafficReport{
+		NodeID: "node-1",
+		Users: []core.UserTraffic{
+			{
+				UserName:   "alice",
+				InletFlow:  800 * 1024 * 1024,
+				ExportFlow: 900 * 1024 * 1024,
+			},
+		},
+	}
+
+	bodyBytes3, _ := json.Marshal(report3)
+	req3 := httptest.NewRequest("POST", "/api/agent/report", bytes.NewReader(bodyBytes3))
+	req3.Header.Set("Authorization", "Bearer node-token")
+	w3 := httptest.NewRecorder()
+
+	api.reportTraffic(w3, req3)
+
+	if w3.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d. Body: %s", w3.Code, w3.Body.String())
+	}
+
+	u3, ok := store.GetUser("alice")
+	if !ok {
+		t.Fatal("user alice not found")
+	}
+	expectedFlow = int64(1200 * 1024 * 1024)
+	if u3.FlowUsed != expectedFlow {
+		t.Fatalf("expected FlowUsed to be 1200MB, got %d", u3.FlowUsed)
+	}
+	if u3.Enabled {
 		t.Fatal("expected user to be automatically disabled due to traffic limit exceedance")
+	}
+}
+
+func TestTrafficReportCounterResetDoesNotDoubleBill(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "db.json")
+	store, err := core.NewStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	if _, err := store.UpsertUser(core.User{Name: "bob", Role: "user", Enabled: true}); err != nil {
+		t.Fatalf("failed to insert user: %v", err)
+	}
+	if _, err := store.UpsertNode(core.Node{ID: "node-1", Name: "Node 1", Token: "node-token", Enabled: true}); err != nil {
+		t.Fatalf("failed to insert node: %v", err)
+	}
+
+	api := &apiServer{
+		store:         store,
+		tunnelTraffic: make(map[string]*tunnelTrafficState),
+		userTraffic:   make(map[string]*userTrafficState),
+	}
+	report := func(inlet, export int64) {
+		t.Helper()
+		body, _ := json.Marshal(core.TrafficReport{
+			NodeID: "node-1",
+			Users: []core.UserTraffic{{
+				UserName:   "bob",
+				InletFlow:  inlet,
+				ExportFlow: export,
+			}},
+		})
+		req := httptest.NewRequest("POST", "/api/agent/report", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer node-token")
+		w := httptest.NewRecorder()
+		api.reportTraffic(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d. Body: %s", w.Code, w.Body.String())
+		}
+	}
+
+	mb := int64(1024 * 1024)
+	report(100*mb, 100*mb) // baseline
+	report(200*mb, 200*mb) // +200 MB
+	report(10*mb, 10*mb)   // counter reset, should not bill
+	report(20*mb, 30*mb)   // +30 MB after reset
+
+	user, ok := store.GetUser("bob")
+	if !ok {
+		t.Fatal("user bob not found")
+	}
+	expected := int64(230 * 1024 * 1024)
+	if user.FlowUsed != expected {
+		t.Fatalf("expected FlowUsed to be 230MB after reset handling, got %d", user.FlowUsed)
 	}
 }

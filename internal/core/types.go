@@ -222,6 +222,8 @@ type PublicUser struct {
 	RateLimit       int         `json:"rateLimit,omitempty"`
 	FlowLimit       int64       `json:"flowLimit,omitempty"`
 	FlowUsed        int64       `json:"flowUsed,omitempty"`
+	InletSpeed      int64       `json:"inletSpeed,omitempty"`
+	ExportSpeed     int64       `json:"exportSpeed,omitempty"`
 	CreatedAt       time.Time   `json:"createdAt"`
 	UpdatedAt       time.Time   `json:"updatedAt"`
 }
