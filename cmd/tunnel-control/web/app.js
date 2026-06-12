@@ -782,8 +782,31 @@ async function loadConfig(kind) {
 async function copyConfig() {
   const text = $("#config-output").textContent;
   if (!text) return;
-  await navigator.clipboard.writeText(text);
+  await copyText(text);
   toast("已复制");
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = text;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  input.style.top = "0";
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("copy command was rejected");
+    }
+  } finally {
+    document.body.removeChild(input);
+  }
 }
 
 async function exportConfigs() {
@@ -809,7 +832,7 @@ function closeDeployModal() {
 async function copyDeployCommand() {
   const text = $("#deploy-cmd-text").textContent;
   if (!text) return;
-  await navigator.clipboard.writeText(text);
+  await copyText(text);
   toast("部署命令已复制到剪贴板");
 }
 
