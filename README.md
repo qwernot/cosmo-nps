@@ -18,6 +18,8 @@ darkver8/cosmo-nps-node     节点服务，运行 tunnel-agent 和 NPS
 darkver8/cosmo-nps-client   用户客户端，运行 Cosmo NPS Client
 ```
 
+三个镜像是分别通过 Dockerfile 的 `control`、`node`、`client` target 构建的独立镜像，不再是同一个镜像打三个标签。
+
 旧镜像 `darkver8/tunnel-control` 属于冻结旧项目；`darkver8/tunnel-all`、`darkver8/tunnel-port`、`darkver8/tunnel-client` 后续只建议用于兼容历史部署。
 
 ## 总控部署
